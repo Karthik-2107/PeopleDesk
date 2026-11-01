@@ -617,11 +617,6 @@ function App() {
                 Create account
               </button>
             </p>
-
-            <div className="demo-note">
-              <strong>Demo Admin Account</strong>
-              <span>Username: admin | Password: 1234</span>
-            </div>
           </div>
         </div>
       </div>
