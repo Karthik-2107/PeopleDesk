@@ -1,2057 +1,2402 @@
-import { useEffect, useRef, useState } from 'react';
-import './App.css';
-import Payslip from './Payslip';
-import MyDetails from './MyDetails';
+import { useEffect, useMemo, useState } from "react";
+import peopleDeskLogo from "./assets/peopledesk-logo.png";
+import {
+  LayoutDashboard,
+  Users,
+  Building2,
+  BriefcaseBusiness,
+  CalendarCheck,
+  CalendarDays,
+  Wallet,
+  FileBarChart,
+  Megaphone,
+  Settings,
+  LogOut,
+  ChevronDown,
+  ChevronRight,
+  Search,
+  Bell,
+  Menu,
+  X,
+  Plus,
+  Pencil,
+  Trash2,
+  Check,
+  Clock,
+  UserRound,
+  ShieldCheck,
+  ArrowUpRight,
+  Download,
+  IndianRupee,
+} from "lucide-react";
 
-// CUSTOM LOGO
-function Logo() {
+import "./App.css";
+
+const STORAGE = {
+  users: "peopledesk_users",
+  employees: "peopledesk_employees",
+  attendance: "peopledesk_attendance",
+  leaves: "peopledesk_leaves",
+  payroll: "peopledesk_payroll",
+  departments: "peopledesk_departments",
+  notices: "peopledesk_notices",
+  holidays: "peopledesk_holidays",
+  currentUser: "peopledesk_current_user",
+};
+
+const DEFAULT_ADMIN = {
+  id: "ADMIN-DEFAULT",
+  name: "PeopleDesk Admin",
+  username: "admin",
+  email: "admin@peopledesk.local",
+  password: "Admin@123",
+  role: "Admin",
+};
+
+function getStoredData(key, fallback) {
+  try {
+    const value = localStorage.getItem(key);
+    return value ? JSON.parse(value) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function saveData(key, value) {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch (error) {
+    console.error("Unable to save data:", error);
+  }
+}
+
+function generateId(prefix) {
+  return `${prefix}-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+}
+
+function getToday() {
+  const date = new Date();
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function formatDate(value) {
+  if (!value) return "—";
+
+  return new Date(`${value}T00:00:00`).toLocaleDateString("en-IN", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
+}
+
+function formatCurrency(value) {
+  return new Intl.NumberFormat("en-IN", {
+    style: "currency",
+    currency: "INR",
+    maximumFractionDigits: 0,
+  }).format(Number(value) || 0);
+}
+
+function validatePassword(password) {
   return (
-    <div className="brand">
-      <div className="brand-icon">
-        <svg viewBox="0 0 48 48" fill="none">
-          <rect x="3" y="3" width="42" height="42" rx="13" fill="#10B981" />
-          <circle cx="18" cy="17" r="5" fill="white" />
-          <circle cx="31" cy="18" r="4" fill="white" />
-          <path d="M9 34C9 27 13 24 18 24C23 24 27 27 27 34" stroke="white" strokeWidth="3" strokeLinecap="round" />
-          <path d="M26 27C28 25 30 25 32 25C37 25 40 28 40 34" stroke="white" strokeWidth="3" strokeLinecap="round" />
-        </svg>
-      </div>
+    password.length >= 8 &&
+    /[A-Z]/.test(password) &&
+    /[a-z]/.test(password) &&
+    /[0-9]/.test(password) &&
+    /[^A-Za-z0-9]/.test(password)
+  );
+}
 
-      <div>
-        <h2>PeopleDesk</h2>
-        <span>EMPLOYEE MANAGEMENT</span>
+function StatCard({ title, value, icon, note }) {
+  return (
+    <div className="stat-card">
+      <div className="stat-card-top">
+        <span>{title}</span>
+        <div className="stat-icon">{icon}</div>
       </div>
+      <h2>{value}</h2>
+      {note && <p>{note}</p>}
     </div>
   );
 }
 
-// SAMPLE EMPLOYEE DATA
-const sampleEmployees = [
-  {
-    id: 'EMP001',
-    name: 'Rahul Kumar',
-    department: 'IT',
-    jobRole: 'Software Developer',
-    salary: 35000,
-    email: 'rahul@example.com',
-    phone: '9876543210',
-    joiningDate: '2025-06-10',
-    status: 'Active'
-  },
-  {
-    id: 'EMP002',
-    name: 'Priya Sharma',
-    department: 'HR',
-    jobRole: 'HR Executive',
-    salary: 30000,
-    email: 'priya@example.com',
-    phone: '9876543211',
-    joiningDate: '2025-07-15',
-    status: 'Active'
-  },
-  {
-    id: 'EMP003',
-    name: 'Arun Kumar',
-    department: 'Finance',
-    jobRole: 'Accountant',
-    salary: 32000,
-    email: 'arun@example.com',
-    phone: '9876543212',
-    joiningDate: '2025-08-20',
-    status: 'Active'
+function EmptyState({ text = "No records found." }) {
+  return (
+    <div className="empty-state">
+      <div className="empty-icon">
+        <FileBarChart size={25} />
+      </div>
+      <p>{text}</p>
+    </div>
+  );
+}
+
+function StatusBadge({ status }) {
+  const className = String(status || "Pending")
+    .toLowerCase()
+    .replace(/\s+/g, "-");
+
+  return (
+    <span className={`status-badge ${className}`}>
+      {status || "Pending"}
+    </span>
+  );
+}
+
+function EmployeeTable({ employees, onEdit, onDelete, isAdmin }) {
+  if (!employees.length) {
+    return <EmptyState text="No employees found." />;
   }
-];
 
-function App() {
+  return (
+    <div className="table-wrapper">
+      <table>
+        <thead>
+          <tr>
+            <th>Employee</th>
+            <th>Department</th>
+            <th>Designation</th>
+            <th>Joining Date</th>
+            <th>Status</th>
+            {isAdmin && <th>Actions</th>}
+          </tr>
+        </thead>
 
-  // USERS
+        <tbody>
+          {employees.map((employee) => (
+            <tr key={employee.id}>
+              <td>
+                <div className="table-person">
+                  <div className="table-avatar">
+                    {employee.name?.charAt(0).toUpperCase()}
+                  </div>
+                  <div>
+                    <strong>{employee.name}</strong>
+                    <small>{employee.id}</small>
+                  </div>
+                </div>
+              </td>
+
+              <td>{employee.department}</td>
+              <td>{employee.designation}</td>
+              <td>{formatDate(employee.joiningDate)}</td>
+
+              <td>
+                <StatusBadge status={employee.status} />
+              </td>
+
+              {isAdmin && (
+                <td>
+                  <div className="table-actions">
+                    <button
+                      type="button"
+                      title="Edit"
+                      onClick={() => onEdit(employee)}
+                    >
+                      <Pencil size={16} />
+                    </button>
+
+                    <button
+                      type="button"
+                      title="Delete"
+                      className="delete-action"
+                      onClick={() => onDelete(employee.id)}
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  </div>
+                </td>
+              )}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function AttendanceTable({ records, employees }) {
+  if (!records.length) {
+    return <EmptyState text="No attendance records available." />;
+  }
+
+  return (
+    <div className="table-wrapper">
+      <table>
+        <thead>
+          <tr>
+            <th>Employee</th>
+            <th>Date</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+
+        <tbody>
+          {[...records].reverse().map((record) => {
+            const employee = employees.find(
+              (item) => item.id === record.employeeId
+            );
+
+            return (
+              <tr key={record.id}>
+                <td>{employee?.name || "Unknown Employee"}</td>
+                <td>{formatDate(record.date)}</td>
+                <td>
+                  <StatusBadge status={record.status} />
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function LeaveTable({ leaves, employees, isAdmin, onUpdate }) {
+  if (!leaves.length) {
+    return <EmptyState text="No leave applications available." />;
+  }
+
+  return (
+    <div className="table-wrapper">
+      <table>
+        <thead>
+          <tr>
+            <th>Employee</th>
+            <th>Leave Type</th>
+            <th>Duration</th>
+            <th>Days</th>
+            <th>Reason</th>
+            <th>Status</th>
+            {isAdmin && <th>Action</th>}
+          </tr>
+        </thead>
+
+        <tbody>
+          {[...leaves].reverse().map((leave) => {
+            const employee = employees.find(
+              (item) => item.id === leave.employeeId
+            );
+
+            return (
+              <tr key={leave.id}>
+                <td>{employee?.name || "Unknown"}</td>
+                <td>{leave.type}</td>
+                <td>
+                  {formatDate(leave.from)} - {formatDate(leave.to)}
+                </td>
+                <td>{leave.days}</td>
+                <td>{leave.reason}</td>
+                <td>
+                  <StatusBadge status={leave.status} />
+                </td>
+
+                {isAdmin && (
+                  <td>
+                    {leave.status === "Pending" && (
+                      <div className="table-actions">
+                        <button
+                          type="button"
+                          title="Approve"
+                          onClick={() => onUpdate(leave.id, "Approved")}
+                        >
+                          <Check size={17} />
+                        </button>
+
+                        <button
+                          type="button"
+                          title="Reject"
+                          className="delete-action"
+                          onClick={() => onUpdate(leave.id, "Rejected")}
+                        >
+                          <X size={17} />
+                        </button>
+                      </div>
+                    )}
+                  </td>
+                )}
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function PayslipTable({ payroll, employees }) {
+  if (!payroll.length) {
+    return <EmptyState text="No payslip records available." />;
+  }
+
+  return (
+    <div className="table-wrapper">
+      <table>
+        <thead>
+          <tr>
+            <th>Employee</th>
+            <th>Month</th>
+            <th>Basic Salary</th>
+            <th>Allowances</th>
+            <th>Deductions</th>
+            <th>Net Salary</th>
+          </tr>
+        </thead>
+
+        <tbody>
+          {[...payroll].reverse().map((record) => {
+            const employee = employees.find(
+              (item) => item.id === record.employeeId
+            );
+
+            return (
+              <tr key={record.id}>
+                <td>{employee?.name || "Unknown"}</td>
+                <td>{record.month}</td>
+                <td>{formatCurrency(record.basic)}</td>
+                <td>{formatCurrency(record.allowances)}</td>
+                <td>{formatCurrency(record.deductions)}</td>
+                <td>
+                  <strong>{formatCurrency(record.netSalary)}</strong>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+export default function App() {
   const [users, setUsers] = useState(() => {
-    const storedUsers = JSON.parse(localStorage.getItem('users')) || [];
+    const savedUsers = getStoredData(STORAGE.users, []);
+    const storedUsers = Array.isArray(savedUsers) ? savedUsers : [];
+    const adminExists = storedUsers.some((user) => user.role === "Admin");
 
-    if (!storedUsers.some(user => user.username.toLowerCase() === 'admin')) {
-      storedUsers.push({
-        name: 'Admin',
-        username: 'admin',
-        password: '1234',
-        role: 'Admin'
-      });
-    }
-
-    localStorage.setItem('users', JSON.stringify(storedUsers));
-    return storedUsers;
+    return adminExists ? storedUsers : [...storedUsers, DEFAULT_ADMIN];
   });
 
-  // LOGIN STATUS
-  const [page, setPageState] = useState(() => {
-    return localStorage.getItem('isLoggedIn') === 'true' &&
-      localStorage.getItem('loggedInUser')
-      ? 'dashboard'
-      : 'login';
+  const [employees, setEmployees] = useState(() =>
+    getStoredData(STORAGE.employees, [])
+  );
+
+  const [attendance, setAttendance] = useState(() =>
+    getStoredData(STORAGE.attendance, [])
+  );
+
+  const [leaves, setLeaves] = useState(() =>
+    getStoredData(STORAGE.leaves, [])
+  );
+
+  const [payroll, setPayroll] = useState(() =>
+    getStoredData(STORAGE.payroll, [])
+  );
+
+  const [departments, setDepartments] = useState(() =>
+    getStoredData(STORAGE.departments, [
+      "Human Resources",
+      "Engineering",
+      "Finance",
+      "Marketing",
+      "Operations",
+    ])
+  );
+
+  const [notices, setNotices] = useState(() =>
+    getStoredData(STORAGE.notices, [])
+  );
+
+  const [holidays, setHolidays] = useState(() =>
+    getStoredData(STORAGE.holidays, [])
+  );
+
+  const [currentUser, setCurrentUser] = useState(() =>
+    getStoredData(STORAGE.currentUser, null)
+  );
+
+  const [page, setPage] = useState("Dashboard");
+  const [servicesOpen, setServicesOpen] = useState(false);
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+
+  const [message, setMessage] = useState("");
+  const [search, setSearch] = useState("");
+  const [departmentFilter, setDepartmentFilter] = useState("All");
+
+  const [loginForm, setLoginForm] = useState({
+    username: "",
+    password: "",
   });
 
-  const [loggedInUser, setLoggedInUser] = useState(() => {
-    return JSON.parse(localStorage.getItem('loggedInUser')) || null;
+  const emptyEmployeeForm = {
+    name: "",
+    username: "",
+    email: "",
+    phone: "",
+    department: "",
+    designation: "",
+    joiningDate: getToday(),
+    salary: "",
+    status: "Active",
+  };
+
+  const [employeeForm, setEmployeeForm] = useState(emptyEmployeeForm);
+  const [showEmployeeForm, setShowEmployeeForm] = useState(false);
+  const [editingEmployee, setEditingEmployee] = useState(null);
+
+  const [departmentForm, setDepartmentForm] = useState("");
+
+  const [attendanceForm, setAttendanceForm] = useState({
+    employeeId: "",
+    date: getToday(),
+    status: "Present",
   });
 
-  // EMPLOYEES
-  const [employees, setEmployees] = useState(() => {
-    const storedEmployees = JSON.parse(localStorage.getItem('employees'));
-
-    if (storedEmployees) {
-      return storedEmployees;
-    }
-
-    localStorage.setItem('employees', JSON.stringify(sampleEmployees));
-    return sampleEmployees;
+  const [leaveForm, setLeaveForm] = useState({
+    type: "Casual Leave",
+    from: "",
+    to: "",
+    reason: "",
+    employeeId: "",
   });
 
-  // ATTENDANCE RECORDS
-  const todayDate = new Date().toLocaleDateString('en-CA');
-
-  const [attendanceRecords, setAttendanceRecords] = useState(() => {
-    return JSON.parse(localStorage.getItem('attendanceRecords')) || [];
+  const [payrollForm, setPayrollForm] = useState({
+    employeeId: "",
+    month: "",
+    basic: "",
+    allowances: "",
+    deductions: "",
   });
 
-  const [attendanceData, setAttendanceData] = useState({
-    employeeId: '',
-    date: todayDate,
-    status: 'Present'
+  const [noticeForm, setNoticeForm] = useState({
+    title: "",
+    description: "",
   });
 
-  const [showAttendanceForm, setShowAttendanceForm] = useState(false);
-  const [attendanceSearch, setAttendanceSearch] = useState('');
-  const [myAttendanceSearch, setMyAttendanceSearch] = useState('');
-
-  // LEAVE MANAGEMENT
-  const [leaveRecords, setLeaveRecords] = useState(() => {
-    return JSON.parse(localStorage.getItem('leaveRecords')) || [];
+  const [holidayForm, setHolidayForm] = useState({
+    name: "",
+    date: "",
   });
 
-  const [showLeaveForm, setShowLeaveForm] = useState(false);
-
-  const [leaveData, setLeaveData] = useState({
-    leaveType: 'Casual Leave',
-    fromDate: '',
-    toDate: '',
-    reason: ''
+  const [passwordForm, setPasswordForm] = useState({
+    currentPassword: "",
+    newPassword: "",
+    confirmPassword: "",
   });
 
-  const [leaveSearch, setLeaveSearch] = useState('');
-
-  const [activeModule, setActiveModuleState] = useState('Dashboard');
-
-  // BROWSER BACK / FORWARD NAVIGATION
-  // Each internal page or sidebar module is saved in browser history.
-  const navigationStateRef = useRef({ page, activeModule });
-  const handlingPopStateRef = useRef(false);
+  useEffect(() => saveData(STORAGE.users, users), [users]);
+  useEffect(() => saveData(STORAGE.employees, employees), [employees]);
+  useEffect(() => saveData(STORAGE.attendance, attendance), [attendance]);
+  useEffect(() => saveData(STORAGE.leaves, leaves), [leaves]);
+  useEffect(() => saveData(STORAGE.payroll, payroll), [payroll]);
+  useEffect(() => saveData(STORAGE.departments, departments), [departments]);
+  useEffect(() => saveData(STORAGE.notices, notices), [notices]);
+  useEffect(() => saveData(STORAGE.holidays, holidays), [holidays]);
 
   useEffect(() => {
-    navigationStateRef.current = { page, activeModule };
+    if (currentUser) {
+      saveData(STORAGE.currentUser, currentUser);
+    } else {
+      localStorage.removeItem(STORAGE.currentUser);
+    }
+  }, [currentUser]);
 
-    // Mark the current page as a PeopleDesk history entry.
-    window.history.replaceState(
-      { ...window.history.state, peopleDesk: true, page, activeModule },
-      '',
+  const isAdmin = currentUser?.role === "Admin";
+
+  // Keep the browser Back button inside PeopleDesk while a user is logged in.
+  // Every Back/Forward navigation returns to the main Dashboard instead of
+  // reopening a previously visited module or logging the user out.
+  useEffect(() => {
+    if (!currentUser) return undefined;
+
+    const dashboardHistoryState = { peopleDeskDashboardGuard: true };
+
+    // Create an in-app history entry so the first Back press is handled here.
+    window.history.pushState(
+      dashboardHistoryState,
+      "",
       window.location.href
     );
 
-    const handleBrowserNavigation = (event) => {
-      if (event.state?.peopleDesk) {
-        const previousPage = event.state.page || 'login';
-        const previousModule = event.state.activeModule || 'Dashboard';
+    const returnToDashboard = () => {
+      setPage("Dashboard");
+      setServicesOpen(false);
+      setMobileSidebarOpen(false);
+      setMessage("");
 
-        handlingPopStateRef.current = true;
-        navigationStateRef.current = {
-          page: previousPage,
-          activeModule: previousModule
-        };
-
-        setPageState(previousPage);
-        setActiveModuleState(previousModule);
-
-        // Allow the next user navigation to create a new history entry.
-        window.setTimeout(() => {
-          handlingPopStateRef.current = false;
-        }, 0);
-      }
+      // Re-add the guard so another Back press also stays in the app.
+      window.history.pushState(
+        dashboardHistoryState,
+        "",
+        window.location.href
+      );
     };
 
-    window.addEventListener('popstate', handleBrowserNavigation);
+    window.addEventListener("popstate", returnToDashboard);
+
     return () => {
-      window.removeEventListener('popstate', handleBrowserNavigation);
+      window.removeEventListener("popstate", returnToDashboard);
     };
-  }, []);
+  }, [currentUser]);
 
-  // Keep the existing setPage calls and save each page change in history.
-  const setPage = (nextPage) => {
-    const resolvedPage =
-      typeof nextPage === 'function'
-        ? nextPage(navigationStateRef.current.page)
-        : nextPage;
+  const myEmployee = employees.find(
+    (employee) => employee.userId === currentUser?.id
+  );
 
-    if (resolvedPage === navigationStateRef.current.page) {
-      setPageState(resolvedPage);
-      return;
-    }
+  const totalEmployees = employees.length;
 
-    const nextNavigationState = {
-      ...navigationStateRef.current,
-      page: resolvedPage
-    };
+  const activeEmployees = employees.filter(
+    (employee) => employee.status === "Active"
+  ).length;
 
-    navigationStateRef.current = nextNavigationState;
+  const presentToday = attendance.filter(
+    (item) => item.date === getToday() && item.status === "Present"
+  ).length;
 
-    if (!handlingPopStateRef.current) {
-      window.history.pushState(
-        { peopleDesk: true, ...nextNavigationState },
-        '',
-        window.location.href
-      );
-    }
+  const absentToday = attendance.filter(
+    (item) => item.date === getToday() && item.status === "Absent"
+  ).length;
 
-    setPageState(resolvedPage);
-  };
+  const pendingLeaves = leaves.filter(
+    (leave) => leave.status === "Pending"
+  ).length;
 
-  // Keep the existing sidebar calls and save module changes in history.
-  const setActiveModule = (nextModule) => {
-    const resolvedModule =
-      typeof nextModule === 'function'
-        ? nextModule(navigationStateRef.current.activeModule)
-        : nextModule;
+  const totalPayroll = payroll.reduce(
+    (sum, item) => sum + Number(item.netSalary || 0),
+    0
+  );
 
-    if (resolvedModule === navigationStateRef.current.activeModule) {
-      setActiveModuleState(resolvedModule);
-      return;
-    }
+  const filteredEmployees = useMemo(() => {
+    const term = search.toLowerCase();
 
-    const nextNavigationState = {
-      ...navigationStateRef.current,
-      activeModule: resolvedModule
-    };
+    return employees.filter((employee) => {
+      const matchesSearch =
+        (employee.name || "").toLowerCase().includes(term) ||
+        (employee.id || "").toLowerCase().includes(term) ||
+        (employee.department || "").toLowerCase().includes(term);
 
-    navigationStateRef.current = nextNavigationState;
+      const matchesDepartment =
+        departmentFilter === "All" ||
+        employee.department === departmentFilter;
 
-    if (!handlingPopStateRef.current) {
-      window.history.pushState(
-        { peopleDesk: true, ...nextNavigationState },
-        '',
-        window.location.href
-      );
-    }
-
-    setActiveModuleState(resolvedModule);
-  };
-
-
-  // LOGIN AND SIGNUP DATA
-  const [loginData, setLoginData] = useState({
-    username: '',
-    password: ''
-  });
-
-  const [signupData, setSignupData] = useState({
-    name: '',
-    username: '',
-    password: '',
-    confirmPassword: ''
-  });
-
-  // EMPLOYEE FORM
-  const emptyEmployee = {
-    id: '',
-    name: '',
-    department: '',
-    jobRole: '',
-    salary: '',
-    email: '',
-    phone: '',
-    joiningDate: '',
-    status: 'Active'
-  };
-
-  const [employeeData, setEmployeeData] = useState(emptyEmployee);
-  const [editingEmployee, setEditingEmployee] = useState(false);
-  const [showEmployeeForm, setShowEmployeeForm] = useState(false);
-  const [searchTerm, setSearchTerm] = useState('');
-
-  const [message, setMessage] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
-
-  // SAVE EMPLOYEES
-  const saveEmployees = (updatedEmployees) => {
-    localStorage.setItem('employees', JSON.stringify(updatedEmployees));
-    setEmployees(updatedEmployees);
-  };
-
-  // LOGIN INPUT
-  const handleLoginChange = (e) => {
-    setLoginData({
-      ...loginData,
-      [e.target.name]: e.target.value
+      return matchesSearch && matchesDepartment;
     });
-  };
+  }, [employees, search, departmentFilter]);
 
-  // SIGNUP INPUT
-  const handleSignupChange = (e) => {
-    setSignupData({
-      ...signupData,
-      [e.target.name]: e.target.value
-    });
-  };
+  function employeeName(id) {
+    return employees.find((employee) => employee.id === id)?.name || "Unknown";
+  }
 
-  // SIGNUP
-  const handleSignup = (e) => {
-    e.preventDefault();
+  const adminMenu = [
+    { name: "Dashboard", icon: LayoutDashboard },
+    { name: "Employees", icon: Users },
+    { name: "Departments", icon: Building2 },
+    {
+      name: "Employee Services",
+      icon: BriefcaseBusiness,
+      submenu: [
+        { name: "Attendance", icon: CalendarCheck },
+        { name: "Leave Management", icon: CalendarDays },
+        { name: "Payslips", icon: Wallet },
+      ],
+    },
+    { name: "Reports", icon: FileBarChart },
+    { name: "Notices", icon: Megaphone },
+    { name: "Holidays", icon: CalendarDays },
+    { name: "Settings", icon: Settings },
+  ];
 
-    const { name, username, password, confirmPassword } = signupData;
+  const employeeMenu = [
+    { name: "Dashboard", icon: LayoutDashboard },
+    { name: "My Profile", icon: UserRound },
+    {
+      name: "Employee Services",
+      icon: BriefcaseBusiness,
+      submenu: [
+        { name: "Attendance", icon: CalendarCheck },
+        { name: "Leave Management", icon: CalendarDays },
+        { name: "Payslips", icon: Wallet },
+      ],
+    },
+    { name: "Notices", icon: Megaphone },
+    { name: "Holidays", icon: CalendarDays },
+    { name: "Settings", icon: Settings },
+  ];
 
-    if (password.length < 4) {
-      setMessage('Password must contain at least 4 characters.');
-      return;
+  const navigationMenu = isAdmin ? adminMenu : employeeMenu;
+
+  function navigateTo(name) {
+    setPage(name);
+    setMobileSidebarOpen(false);
+    setMessage("");
+
+    if (["Attendance", "Leave Management", "Payslips"].includes(name)) {
+      setServicesOpen(true);
     }
+  }
 
-    if (password !== confirmPassword) {
-      setMessage('Passwords do not match.');
-      return;
-    }
-
-    const exists = users.some(
-      user => user.username.toLowerCase() === username.trim().toLowerCase()
-    );
-
-    if (exists) {
-      setMessage('Username already exists.');
-      return;
-    }
-
-    const newUser = {
-      name: name.trim(),
-      username: username.trim(),
-      password,
-      role: 'User'
-    };
-
-    const updatedUsers = [...users, newUser];
-
-    localStorage.setItem('users', JSON.stringify(updatedUsers));
-    setUsers(updatedUsers);
-
-    setSignupData({
-      name: '',
-      username: '',
-      password: '',
-      confirmPassword: ''
-    });
-
-    setMessage('Account created successfully!');
-
-    setTimeout(() => {
-      setPage('login');
-      setMessage('');
-    }, 1200);
-  };
-
-    // LOGIN
-  const handleLogin = (e) => {
-    e.preventDefault();
+  function handleLogin(event) {
+    event.preventDefault();
+    setMessage("");
 
     const user = users.find(
-      item =>
-        item.username.toLowerCase() === loginData.username.trim().toLowerCase() &&
-        item.password === loginData.password
+      (item) =>
+        item.username.toLowerCase() ===
+          loginForm.username.trim().toLowerCase() &&
+        item.password === loginForm.password
     );
 
     if (!user) {
-      setMessage('Invalid username or password.');
+      setMessage("Invalid username or password.");
       return;
     }
 
-    localStorage.setItem('isLoggedIn', 'true');
-    localStorage.setItem('loggedInUser', JSON.stringify(user));
+    setCurrentUser(user);
+    setLoginForm({ username: "", password: "" });
+    setPage("Dashboard");
+  }
 
-    setLoggedInUser(user);
-    setActiveModule('Dashboard');
-    setPage('dashboard');
-    setMessage('');
-  };
+  function handleLogout() {
+    setCurrentUser(null);
+    setPage("Dashboard");
+    setServicesOpen(false);
+    setMessage("");
+  }
 
-  // LOGOUT
-  const handleLogout = () => {
-    localStorage.removeItem('isLoggedIn');
-    localStorage.removeItem('loggedInUser');
+  function saveEmployee(event) {
+    event.preventDefault();
 
-    setLoggedInUser(null);
-    setLoginData({ username: '', password: '' });
-    setActiveModule('Dashboard');
-    setPage('login');
-    setMessage('');
-  };
-
-  // OPEN ADD EMPLOYEE FORM
-  const openAddForm = () => {
-    setEmployeeData({
-      ...emptyEmployee,
-      id: `EMP${String(Date.now()).slice(-6)}`
-    });
-
-    setEditingEmployee(false);
-    setShowEmployeeForm(true);
-  };
-
-  // OPEN EDIT EMPLOYEE FORM
-  const openEditForm = (employee) => {
-    setEmployeeData({ ...employee });
-    setEditingEmployee(true);
-    setShowEmployeeForm(true);
-  };
-
-  // EMPLOYEE INPUT
-  const handleEmployeeChange = (e) => {
-    setEmployeeData({
-      ...employeeData,
-      [e.target.name]: e.target.value
-    });
-  };
-
-  // ADD OR UPDATE EMPLOYEE
-  const handleEmployeeSubmit = (e) => {
-    e.preventDefault();
-
-    if (Number(employeeData.salary) <= 0) {
-      alert('Please enter a valid salary.');
+    // Employee accounts can only be created or maintained by an Admin.
+    if (!isAdmin) {
+      setMessage("Only administrators can manage employee accounts.");
       return;
     }
 
-    if (!/^[0-9]{10}$/.test(employeeData.phone)) {
-      alert('Please enter a valid 10-digit phone number.');
+    const normalizedUsername = employeeForm.username.trim().toLowerCase();
+    const linkedUserId = editingEmployee?.userId;
+    const usernameTaken = users.some(
+      (user) =>
+        user.username?.toLowerCase() === normalizedUsername &&
+        user.id !== linkedUserId
+    );
+
+    if (usernameTaken) {
+      alert("Username already exists. Please choose another username.");
       return;
     }
 
-    let updatedEmployees;
+    if (
+      !employeeForm.name.trim() ||
+      !employeeForm.username.trim() ||
+      !employeeForm.email.trim()
+    ) {
+      alert("Please complete all required employee details.");
+      return;
+    }
 
     if (editingEmployee) {
-      updatedEmployees = employees.map(employee =>
-        employee.id === employeeData.id
-          ? { ...employeeData, salary: Number(employeeData.salary) }
-          : employee
+      setEmployees((previous) =>
+        previous.map((employee) =>
+          employee.id === editingEmployee.id
+            ? { ...employee, ...employeeForm }
+            : employee
+        )
       );
 
-      alert('Employee details updated successfully!');
+      setUsers((previous) =>
+        previous.map((user) =>
+          user.id === editingEmployee.userId
+            ? {
+                ...user,
+                name: employeeForm.name.trim(),
+                username: employeeForm.username.trim(),
+                email: employeeForm.email.trim(),
+              }
+            : user
+        )
+      );
     } else {
-      const duplicateId = employees.some(
-        employee => employee.id === employeeData.id
-      );
+      const user = {
+        id: generateId("USER"),
+        name: employeeForm.name.trim(),
+        username: employeeForm.username.trim(),
+        email: employeeForm.email.trim(),
+        password: "Welcome123!",
+        role: "Employee",
+      };
 
-      if (duplicateId) {
-        alert('Employee ID already exists.');
-        return;
-      }
+      const employee = {
+        ...employeeForm,
+        id: generateId("EMP"),
+        userId: user.id,
+      };
 
-      updatedEmployees = [
-        ...employees,
-        { ...employeeData, salary: Number(employeeData.salary) }
-      ];
+      setUsers((previous) => [...previous, user]);
+      setEmployees((previous) => [...previous, employee]);
 
-      alert('Employee added successfully!');
+      alert("Employee added. Initial password: Welcome123!");
     }
 
-    saveEmployees(updatedEmployees);
+    setEmployeeForm(emptyEmployeeForm);
+    setEditingEmployee(null);
     setShowEmployeeForm(false);
-    setEmployeeData(emptyEmployee);
-  };
+  }
 
-  // DELETE EMPLOYEE
-  const deleteEmployee = (id) => {
-    const confirmDelete = window.confirm(
-      'Are you sure you want to delete this employee?'
+  function editEmployee(employee) {
+    setEditingEmployee(employee);
+    setEmployeeForm({ ...emptyEmployeeForm, ...employee });
+    setShowEmployeeForm(true);
+  }
+
+  function deleteEmployee(id) {
+    if (!window.confirm("Delete this employee?")) return;
+
+    const employee = employees.find((item) => item.id === id);
+
+    setEmployees((previous) =>
+      previous.filter((item) => item.id !== id)
     );
 
-    if (!confirmDelete) {
+    if (employee?.userId) {
+      setUsers((previous) =>
+        previous.filter((user) => user.id !== employee.userId)
+      );
+    }
+  }
+
+  function markAttendance(event) {
+    event.preventDefault();
+
+    const exists = attendance.some(
+      (item) =>
+        item.employeeId === attendanceForm.employeeId &&
+        item.date === attendanceForm.date
+    );
+
+    if (exists) {
+      alert("Attendance already marked for this employee on this date.");
       return;
     }
 
-    const updatedEmployees = employees.filter(
-      employee => employee.id !== id
-    );
+    setAttendance((previous) => [
+      ...previous,
+      {
+        id: generateId("ATT"),
+        ...attendanceForm,
+      },
+    ]);
 
-    saveEmployees(updatedEmployees);
-  };
+    setAttendanceForm({
+      employeeId: "",
+      date: getToday(),
+      status: "Present",
+    });
+  }
 
-  // SAVE ATTENDANCE RECORDS
-  const saveAttendanceRecords = (updatedRecords) => {
-    localStorage.setItem('attendanceRecords', JSON.stringify(updatedRecords));
-    setAttendanceRecords(updatedRecords);
-  };
+  function applyLeave(event) {
+    event.preventDefault();
 
-  // ADD ATTENDANCE
-  const handleAttendanceSubmit = (e) => {
-    e.preventDefault();
-
-    const selectedEmployee = employees.find(
-      employee => employee.id === attendanceData.employeeId
-    );
-
-    if (!selectedEmployee) {
-      alert('Please select an employee.');
+    if (!leaveForm.from || !leaveForm.to || !leaveForm.reason.trim()) {
+      alert("Please complete all leave details.");
       return;
     }
 
-    const duplicateRecord = attendanceRecords.some(
-      record =>
-        record.employeeId === attendanceData.employeeId &&
-        record.date === attendanceData.date
-    );
-
-    if (duplicateRecord) {
-      alert('Attendance is already recorded for this employee on this date.');
+    if (leaveForm.to < leaveForm.from) {
+      alert("End date cannot be before start date.");
       return;
     }
 
-    const newRecord = {
-      id: `${attendanceData.employeeId}-${attendanceData.date}`,
-      employeeId: selectedEmployee.id,
-      employeeName: selectedEmployee.name,
-      date: attendanceData.date,
-      status: attendanceData.status
+    const employeeId = isAdmin
+      ? leaveForm.employeeId
+      : myEmployee?.id;
+
+    if (!employeeId) {
+      alert("Employee profile not found.");
+      return;
+    }
+
+    const days =
+      Math.floor(
+        (new Date(`${leaveForm.to}T00:00:00`) -
+          new Date(`${leaveForm.from}T00:00:00`)) /
+          (1000 * 60 * 60 * 24)
+      ) + 1;
+
+    setLeaves((previous) => [
+      ...previous,
+      {
+        id: generateId("LEAVE"),
+        employeeId,
+        ...leaveForm,
+        days,
+        status: "Pending",
+      },
+    ]);
+
+    setLeaveForm({
+      type: "Casual Leave",
+      from: "",
+      to: "",
+      reason: "",
+      employeeId: "",
+    });
+  }
+
+  function updateLeave(id, status) {
+    setLeaves((previous) =>
+      previous.map((leave) =>
+        leave.id === id ? { ...leave, status } : leave
+      )
+    );
+  }
+
+  function addPayroll(event) {
+    event.preventDefault();
+
+    const basic = Number(payrollForm.basic);
+    const allowances = Number(payrollForm.allowances);
+    const deductions = Number(payrollForm.deductions);
+
+    if (
+      !payrollForm.employeeId ||
+      !payrollForm.month ||
+      !Number.isFinite(basic) ||
+      !Number.isFinite(allowances) ||
+      !Number.isFinite(deductions) ||
+      basic < 0 ||
+      allowances < 0 ||
+      deductions < 0 ||
+      deductions > basic + allowances
+    ) {
+      alert("Please enter valid salary amounts.");
+      return;
+    }
+
+    const duplicate = payroll.some(
+      (item) =>
+        item.employeeId === payrollForm.employeeId &&
+        item.month === payrollForm.month
+    );
+
+    if (duplicate) {
+      alert("Payroll already exists for this employee and month.");
+      return;
+    }
+
+    setPayroll((previous) => [
+      ...previous,
+      {
+        id: generateId("PAY"),
+        ...payrollForm,
+        basic,
+        allowances,
+        deductions,
+        netSalary: basic + allowances - deductions,
+      },
+    ]);
+
+    setPayrollForm({
+      employeeId: "",
+      month: "",
+      basic: "",
+      allowances: "",
+      deductions: "",
+    });
+  }
+    // DEPARTMENTS
+
+  function addDepartment(event) {
+    event.preventDefault();
+
+    const name = departmentForm.trim();
+
+    if (!name) return;
+
+    if (
+      departments.some(
+        (item) => item.toLowerCase() === name.toLowerCase()
+      )
+    ) {
+      alert("Department already exists.");
+      return;
+    }
+
+    setDepartments((previous) => [...previous, name]);
+    setDepartmentForm("");
+  }
+
+  function deleteDepartment(name) {
+    if (
+      employees.some((employee) => employee.department === name)
+    ) {
+      alert(
+        "Move employees to another department before deleting this department."
+      );
+      return;
+    }
+
+    if (!window.confirm(`Delete ${name}?`)) return;
+
+    setDepartments((previous) =>
+      previous.filter((item) => item !== name)
+    );
+  }
+
+  // NOTICES
+
+  function addNotice(event) {
+    event.preventDefault();
+
+    if (
+      !noticeForm.title.trim() ||
+      !noticeForm.description.trim()
+    ) {
+      return;
+    }
+
+    setNotices((previous) => [
+      ...previous,
+      {
+        id: generateId("NOTICE"),
+        title: noticeForm.title.trim(),
+        description: noticeForm.description.trim(),
+        date: getToday(),
+      },
+    ]);
+
+    setNoticeForm({ title: "", description: "" });
+  }
+
+  function deleteNotice(id) {
+    if (!window.confirm("Delete this notice?")) return;
+
+    setNotices((previous) =>
+      previous.filter((notice) => notice.id !== id)
+    );
+  }
+
+  // HOLIDAYS
+
+  function addHoliday(event) {
+    event.preventDefault();
+
+    if (!holidayForm.name.trim() || !holidayForm.date) {
+      alert("Please enter holiday name and date.");
+      return;
+    }
+
+    const exists = holidays.some(
+      (holiday) =>
+        holiday.date === holidayForm.date &&
+        holiday.name.toLowerCase() ===
+          holidayForm.name.trim().toLowerCase()
+    );
+
+    if (exists) {
+      alert("This holiday already exists.");
+      return;
+    }
+
+    setHolidays((previous) => [
+      ...previous,
+      {
+        id: generateId("HOL"),
+        name: holidayForm.name.trim(),
+        date: holidayForm.date,
+      },
+    ]);
+
+    setHolidayForm({ name: "", date: "" });
+  }
+
+  function deleteHoliday(id) {
+    if (!window.confirm("Delete this holiday?")) return;
+
+    setHolidays((previous) =>
+      previous.filter((holiday) => holiday.id !== id)
+    );
+  }
+
+  // PASSWORD SETTINGS
+
+  function changePassword(event) {
+    event.preventDefault();
+
+    if (currentUser.password !== passwordForm.currentPassword) {
+      alert("Current password is incorrect.");
+      return;
+    }
+
+    if (!validatePassword(passwordForm.newPassword)) {
+      alert(
+        "New password must contain at least 8 characters, uppercase, lowercase, number and special character."
+      );
+      return;
+    }
+
+    if (
+      passwordForm.newPassword !== passwordForm.confirmPassword
+    ) {
+      alert("New passwords do not match.");
+      return;
+    }
+
+    const updatedUser = {
+      ...currentUser,
+      password: passwordForm.newPassword,
     };
 
-    saveAttendanceRecords([...attendanceRecords, newRecord]);
-    setAttendanceData({
-      employeeId: '',
-      date: todayDate,
-      status: 'Present'
-    });
-    setShowAttendanceForm(false);
-    alert('Attendance saved successfully!');
-  };
-
-  // DELETE ATTENDANCE RECORD
-  const deleteAttendance = (recordId) => {
-    if (!window.confirm('Are you sure you want to delete this attendance record?')) {
-      return;
-    }
-
-    saveAttendanceRecords(
-      attendanceRecords.filter(record => record.id !== recordId)
-    );
-  };
-
-  // SAVE LEAVE RECORDS
-  const saveLeaveRecords = (updatedRecords) => {
-    localStorage.setItem('leaveRecords', JSON.stringify(updatedRecords));
-    setLeaveRecords(updatedRecords);
-  };
-
-  // APPLY FOR LEAVE
-  const handleLeaveSubmit = (e) => {
-    e.preventDefault();
-
-    if (leaveData.toDate < leaveData.fromDate) {
-      alert('To date cannot be earlier than From date.');
-      return;
-    }
-
-    const matchingEmployee = employees.find(
-      employee =>
-        employee.name.trim().toLowerCase() ===
-        loggedInUser?.name?.trim().toLowerCase()
+    setUsers((previous) =>
+      previous.map((user) =>
+        user.id === currentUser.id ? updatedUser : user
+      )
     );
 
-    const newLeave = {
-      id: `LEAVE-${Date.now()}`,
-      employeeId: matchingEmployee?.id || 'N/A',
-      employeeName: loggedInUser?.name || 'Employee',
-      leaveType: leaveData.leaveType,
-      fromDate: leaveData.fromDate,
-      toDate: leaveData.toDate,
-      reason: leaveData.reason.trim(),
-      status: 'Pending',
-      appliedOn: todayDate
-    };
+    setCurrentUser(updatedUser);
 
-    saveLeaveRecords([...leaveRecords, newLeave]);
-
-    setLeaveData({
-      leaveType: 'Casual Leave',
-      fromDate: '',
-      toDate: '',
-      reason: ''
+    setPasswordForm({
+      currentPassword: "",
+      newPassword: "",
+      confirmPassword: "",
     });
 
-    setShowLeaveForm(false);
-    alert('Leave application submitted successfully!');
-  };
+    alert("Password updated successfully.");
+  }
 
-  // APPROVE OR REJECT LEAVE
-  const updateLeaveStatus = (leaveId, status) => {
-    const updatedRecords = leaveRecords.map(record =>
-      record.id === leaveId
-        ? { ...record, status }
-        : record
-    );
+  // REPORT EXPORT
 
-    saveLeaveRecords(updatedRecords);
-  };
+  function exportEmployees() {
+    const headings = [
+      "Employee ID",
+      "Name",
+      "Username",
+      "Email",
+      "Department",
+      "Designation",
+      "Joining Date",
+      "Status",
+    ];
 
-  // DELETE LEAVE REQUEST
-  const deleteLeave = (leaveId) => {
-    if (!window.confirm('Are you sure you want to delete this leave request?')) {
-      return;
-    }
+    const rows = employees.map((employee) => [
+      employee.id,
+      employee.name,
+      employee.username,
+      employee.email,
+      employee.department,
+      employee.designation,
+      employee.joiningDate,
+      employee.status,
+    ]);
 
-    saveLeaveRecords(
-      leaveRecords.filter(record => record.id !== leaveId)
-    );
-  };
+    const csv = [headings, ...rows]
+      .map((row) =>
+        row
+          .map(
+            (value) =>
+              `"${String(value ?? "").replace(/"/g, '""')}"`
+          )
+          .join(",")
+      )
+      .join("\n");
 
-  // NAVIGATION MODULES
-  const adminModules = [
-    { name: 'Dashboard', icon: '▦' },
-    { name: 'Employees', icon: '♙' },
-    { name: 'Attendance', icon: '◷' },
-    { name: 'Leave', icon: '▤' },
-    { name: 'Payslip', icon: '₹' }
-  ];
+    const blob = new Blob([csv], {
+      type: "text/csv;charset=utf-8;",
+    });
 
-  const employeeModules = [
-    { name: 'Dashboard', icon: '▦' },
-    { name: 'My Details', icon: '♙' },
-    { name: 'My Attendance', icon: '◷' },
-    { name: 'Apply Leave', icon: '▤' },
-    { name: 'My Payslip', icon: '₹' }
-  ];
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
 
-  // LOGIN PAGE
+    anchor.href = url;
+    anchor.download = "PeopleDesk-Employee-Report.csv";
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
 
+    URL.revokeObjectURL(url);
+  }
 
-    if (page === 'login') {
+  // AUTHENTICATION UI
+
+  if (!currentUser) {
     return (
-      <div className="auth-page">
-        <div className="auth-left">
-          <Logo />
-
-          <div className="auth-intro">
-            <span className="welcome-label">WELCOME TO PEOPLEDESK</span>
-
-            <h1>
-              Manage your people.<br />
-              <span>Grow your organization.</span>
-            </h1>
-
-            <p>
-              A simple and organized way to manage employee information,
-              attendance, leave and payroll.
-            </p>
-
-            <div className="auth-features">
-              <div>✓ Employee Management</div>
-              <div>✓ Attendance Tracking</div>
-              <div>✓ Leave & Payroll Management</div>
+      <div className="auth-layout">
+        <section className="auth-brand-panel">
+          <div className="auth-brand">
+            <div className="brand-logo">
+              <img
+                src={peopleDeskLogo}
+                alt="PeopleDesk logo"
+                onError={(event) => {
+                  event.currentTarget.style.display = "none";
+                }}
+              />
+              <span>P</span>
             </div>
+            <span>PeopleDesk</span>
           </div>
+        </section>
 
-          <div className="auth-bottom">
-            Employee Management System · 2026
-          </div>
-        </div>
-
-        <div className="auth-right">
+        <section className="auth-main">
           <div className="auth-card">
-            <div className="mobile-logo">
-              <Logo />
+            <div className="mobile-brand">
+              <div className="brand-logo">
+                <img
+                  src={peopleDeskLogo}
+                  alt="PeopleDesk logo"
+                  onError={(event) => {
+                    event.currentTarget.style.display = "none";
+                  }}
+                />
+                <span>P</span>
+              </div>
+              <span>PeopleDesk</span>
             </div>
 
-            <span className="form-label">ACCOUNT LOGIN</span>
-            <h2>Welcome back!</h2>
+            <div className="auth-heading">
+              <span className="auth-overline">WELCOME TO PEOPLEDESK</span>
+              <h2>Welcome back</h2>
+              <p>Sign in to access your workspace.</p>
+            </div>
 
-            <p className="form-description">
-              Please enter your details to sign in.
-            </p>
-
-            <form onSubmit={handleLogin}>
-              <div className="input-group">
-                <label>Username</label>
+            <form className="auth-form" onSubmit={handleLogin}>
+              <label>
+                Username
                 <input
-                  type="text"
-                  name="username"
-                  placeholder="Enter your username"
-                  value={loginData.username}
-                  onChange={handleLoginChange}
+                  value={loginForm.username}
+                  onChange={(event) =>
+                    setLoginForm({
+                      ...loginForm,
+                      username: event.target.value,
+                    })
+                  }
+                  placeholder="Enter username"
+                  autoComplete="username"
                   required
                 />
-              </div>
+              </label>
 
-              <div className="input-group">
-                <label>Password</label>
+              <label>
+                Password
+                <input
+                  type="password"
+                  value={loginForm.password}
+                  onChange={(event) =>
+                    setLoginForm({
+                      ...loginForm,
+                      password: event.target.value,
+                    })
+                  }
+                  placeholder="Enter password"
+                  autoComplete="current-password"
+                  required
+                />
+              </label>
 
-                <div className="password-field">
-                  <input
-                    type={showPassword ? 'text' : 'password'}
-                    name="password"
-                    placeholder="Enter your password"
-                    value={loginData.password}
-                    onChange={handleLoginChange}
-                    required
-                  />
+              {message && <div className="auth-error">{message}</div>}
 
-                  <button
-                    type="button"
-                    className="show-password"
-                    onClick={() => setShowPassword(!showPassword)}
-                  >
-                    {showPassword ? 'Hide' : 'Show'}
-                  </button>
-                </div>
-              </div>
-
-              <button className="auth-button" type="submit">
-                Sign In →
+              <button className="auth-submit" type="submit">
+                Sign In
+                <ArrowUpRight size={19} />
               </button>
             </form>
 
-            {message && <p className="message">{message}</p>}
-
-            <p className="auth-switch">
-              Don't have an account?
-              <button onClick={() => {
-                setPage('signup');
-                setMessage('');
-              }}>
-                Create account
-              </button>
-            </p>
+            <div className="auth-security">
+              <ShieldCheck size={16} />
+              <span>PeopleDesk Workspace</span>
+            </div>
           </div>
-        </div>
+        </section>
       </div>
     );
   }
 
-  // SIGNUP PAGE
-  if (page === 'signup') {
-    return (
-      <div className="auth-page">
-        <div className="auth-left">
-          <Logo />
+  // MAIN APPLICATION LAYOUT
 
-          <div className="auth-intro">
-            <span className="welcome-label">JOIN PEOPLEDESK</span>
-
-            <h1>
-              One place for<br />
-              <span>your work journey.</span>
-            </h1>
-
-            <p>
-              Create your account and access your employee dashboard
-              with all your important information.
-            </p>
-
-            <div className="auth-features">
-              <div>✓ View Your Details</div>
-              <div>✓ Track Attendance</div>
-              <div>✓ Apply for Leave</div>
-            </div>
-          </div>
-
-          <div className="auth-bottom">
-            Employee Management System · 2026
-          </div>
-        </div>
-
-        <div className="auth-right">
-          <div className="auth-card">
-            <div className="mobile-logo">
-              <Logo />
-            </div>
-
-            <span className="form-label">CREATE ACCOUNT</span>
-            <h2>Get started</h2>
-
-            <p className="form-description">
-              Fill in your details to create an account.
-            </p>
-
-            <form onSubmit={handleSignup}>
-              <div className="input-group">
-                <label>Full Name</label>
-                <input
-                  type="text"
-                  name="name"
-                  placeholder="Enter your full name"
-                  value={signupData.name}
-                  onChange={handleSignupChange}
-                  required
-                />
-              </div>
-
-              <div className="input-group">
-                <label>Username</label>
-                <input
-                  type="text"
-                  name="username"
-                  placeholder="Create a username"
-                  value={signupData.username}
-                  onChange={handleSignupChange}
-                  required
-                />
-              </div>
-
-              <div className="input-group">
-                <label>Password</label>
-                <input
-                  type="password"
-                  name="password"
-                  placeholder="Create a password"
-                  value={signupData.password}
-                  onChange={handleSignupChange}
-                  required
-                />
-              </div>
-
-              <div className="input-group">
-                <label>Confirm Password</label>
-                <input
-                  type="password"
-                  name="confirmPassword"
-                  placeholder="Confirm your password"
-                  value={signupData.confirmPassword}
-                  onChange={handleSignupChange}
-                  required
-                />
-              </div>
-
-              <button className="auth-button" type="submit">
-                Create Account →
-              </button>
-            </form>
-
-            {message && <p className="message">{message}</p>}
-
-            <p className="auth-switch">
-              Already have an account?
-              <button onClick={() => {
-                setPage('login');
-                setMessage('');
-              }}>
-                Sign in
-              </button>
-            </p>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-    // DASHBOARD
-  const isAdmin = loggedInUser?.role === 'Admin';
-  const modules = isAdmin ? adminModules : employeeModules;
-
-  const filteredEmployees = employees.filter(employee =>
-    `${employee.name} ${employee.id} ${employee.department} ${employee.jobRole}`
-      .toLowerCase()
-      .includes(searchTerm.toLowerCase())
-  );
-
-  const departments = new Set(
-    employees.map(employee => employee.department)
-  ).size;
-
-  // DASHBOARD SUMMARY DATA
-const dashboardPayslips =
-  JSON.parse(localStorage.getItem('payslips')) || [];
-
-const totalPayroll = dashboardPayslips.reduce(
-  (total, item) => total + Number(item.netSalary || 0),
-  0
-);
-
-const presentToday = attendanceRecords.filter(
-  record =>
-    record.date === todayDate &&
-    record.status === 'Present'
-).length;
-
-const absentToday = attendanceRecords.filter(
-  record =>
-    record.date === todayDate &&
-    record.status === 'Absent'
-).length;
-
-const pendingLeaves = leaveRecords.filter(
-  record => record.status === 'Pending'
-);
-
-const recentLeaves = [...leaveRecords]
-  .sort((a, b) => b.appliedOn.localeCompare(a.appliedOn))
-  .slice(0, 5);
   return (
-    <div className="dashboard-layout">
+    <div className="app-layout">
+      {mobileSidebarOpen && (
+        <div
+          className="sidebar-overlay"
+          onClick={() => setMobileSidebarOpen(false)}
+        />
+      )}
 
-      <aside className="sidebar">
-        <Logo />
+      <aside
+        className={`sidebar ${
+          mobileSidebarOpen ? "sidebar-open" : ""
+        }`}
+      >
+        <div className="sidebar-brand">
+          <div className="sidebar-logo">P</div>
 
-        <div className="sidebar-heading">MAIN MENU</div>
+          <div>
+            <h2>PeopleDesk</h2>
+            <span>WORKSPACE</span>
+          </div>
+
+          <button
+            type="button"
+            className="sidebar-close"
+            onClick={() => setMobileSidebarOpen(false)}
+          >
+            <X size={20} />
+          </button>
+        </div>
+
+        <div className="sidebar-section-label">MAIN MENU</div>
 
         <nav className="sidebar-nav">
-          {modules.map(module => (
-            <button
-              key={module.name}
-              className={
-                activeModule === module.name
-                  ? 'sidebar-link selected'
-                  : 'sidebar-link'
-              }
-              onClick={() => {
-                setActiveModule(module.name);
-                setShowEmployeeForm(false);
-                setSearchTerm('');
-              }}
-            >
-              <span className="sidebar-icon">{module.icon}</span>
-              {module.name}
-            </button>
-          ))}
+          {navigationMenu.map((item) => {
+            const Icon = item.icon;
+
+            if (item.submenu) {
+              const active = item.submenu.some(
+                (child) => child.name === page
+              );
+
+              return (
+                <div className="nav-group" key={item.name}>
+                  <button
+                    type="button"
+                    className={`nav-item ${
+                      active ? "nav-active" : ""
+                    }`}
+                    onClick={() =>
+                      setServicesOpen((previous) => !previous)
+                    }
+                  >
+                    <Icon size={19} />
+                    <span>{item.name}</span>
+
+                    {servicesOpen ? (
+                      <ChevronDown
+                        size={16}
+                        className="nav-chevron"
+                      />
+                    ) : (
+                      <ChevronRight
+                        size={16}
+                        className="nav-chevron"
+                      />
+                    )}
+                  </button>
+
+                  {servicesOpen && (
+                    <div className="submenu">
+                      {item.submenu.map((child) => {
+                        const ChildIcon = child.icon;
+
+                        return (
+                          <button
+                            type="button"
+                            key={child.name}
+                            className={`submenu-item ${
+                              page === child.name
+                                ? "submenu-active"
+                                : ""
+                            }`}
+                            onClick={() => navigateTo(child.name)}
+                          >
+                            <ChildIcon size={17} />
+                            <span>{child.name}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            }
+
+            return (
+              <button
+                type="button"
+                key={item.name}
+                className={`nav-item ${
+                  page === item.name ? "nav-active" : ""
+                }`}
+                onClick={() => navigateTo(item.name)}
+              >
+                <Icon size={19} />
+                <span>{item.name}</span>
+              </button>
+            );
+          })}
         </nav>
 
         <div className="sidebar-bottom">
-          <div className="user-profile">
+          <div className="sidebar-user">
             <div className="user-avatar">
-              {loggedInUser?.name?.charAt(0).toUpperCase()}
+              {currentUser.name.charAt(0).toUpperCase()}
             </div>
 
-            <div>
-              <strong>{loggedInUser?.name}</strong>
-              <span>{loggedInUser?.role}</span>
+            <div className="sidebar-user-info">
+              <strong>{currentUser.name}</strong>
+              <span>{currentUser.role}</span>
             </div>
           </div>
 
-          <button className="sidebar-logout" onClick={handleLogout}>
-            ↪ Logout
+          <button
+            type="button"
+            className="logout-button"
+            onClick={handleLogout}
+          >
+            <LogOut size={18} />
+            <span>Sign Out</span>
           </button>
         </div>
       </aside>
 
-      <main className="dashboard-content">
-
+      <main className="main-area">
         <header className="topbar">
-          <div>
-            <h2>{activeModule}</h2>
-            <p>PeopleDesk / {activeModule}</p>
+          <div className="topbar-left">
+            <button
+              type="button"
+              className="mobile-menu-button"
+              onClick={() => setMobileSidebarOpen(true)}
+            >
+              <Menu size={22} />
+            </button>
+
+            <div>
+              <div className="breadcrumb">
+                <span>PeopleDesk</span>
+                <ChevronRight size={15} />
+                <strong>{page}</strong>
+              </div>
+
+              <p>Workforce Management System</p>
+            </div>
           </div>
 
-          <div className="topbar-user">
-            <div className="user-avatar">
-              {loggedInUser?.name?.charAt(0).toUpperCase()}
+          <div className="topbar-right">
+            <div className="topbar-date">
+              {formatDate(getToday())}
             </div>
-            <span>{loggedInUser?.name}</span>
+
+            <button
+              type="button"
+              className="notification-button"
+              title="Notifications"
+            >
+              <Bell size={19} />
+            </button>
+
+            <div className="topbar-profile">
+              <div className="user-avatar">
+                {currentUser.name.charAt(0).toUpperCase()}
+              </div>
+
+              <div>
+                <strong>{currentUser.name}</strong>
+                <span>{currentUser.role}</span>
+              </div>
+            </div>
           </div>
         </header>
 
-        <section className="content-area">
+        <div className="page-content">
+          {/* DASHBOARD */}
 
-          {/* ADMIN DASHBOARD */}
-          {/* EMPLOYEE MY DETAILS */}
-{activeModule === 'My Details' && !isAdmin && (
-  <MyDetails
-    loggedInUser={loggedInUser}
-    employees={employees}
-  />
-)}
-          {activeModule === 'Dashboard' && (
+          {page === "Dashboard" && (
             <>
               <div className="page-heading">
                 <div>
-                  <h1>Hello, {loggedInUser?.name} 👋</h1>
-                  <p>Here's an overview of your workspace.</p>
+                  <span className="eyebrow">OVERVIEW</span>
+                  <h1>Dashboard</h1>
+                  <p>Welcome back, {currentUser.name}.</p>
+                </div>
+
+                <div className="date-badge">
+                  {formatDate(getToday())}
                 </div>
               </div>
 
               {isAdmin ? (
                 <>
                   <div className="stats-grid">
-                    <div className="stat-card">
-                      <span>Total Employees</span>
-                      <h2>{employees.length}</h2>
-                      <p>Employee records</p>
-                    </div>
+                    <StatCard
+                      title="Total Employees"
+                      value={totalEmployees}
+                      icon={<Users size={21} />}
+                    />
 
-                    <div className="stat-card">
-                      <span>Present Today</span>
-                      <h2>
-                        {attendanceRecords.filter(
-                          record =>
-                            record.date === todayDate &&
-                            record.status === 'Present'
-                        ).length}
-                      </h2>
-                      <p>Present attendance records</p>
-                    </div>
+                    <StatCard
+                      title="Active Employees"
+                      value={activeEmployees}
+                      icon={<UserRound size={21} />}
+                    />
 
-                    <div className="stat-card">
-                      <span>Leave Requests</span>
-                      <h2>
-                        {leaveRecords.filter(
-                          record => record.status === 'Pending'
-                        ).length}
-                      </h2>
-                      <p>Pending requests</p>
-                    </div>
+                    <StatCard
+                      title="Present Today"
+                      value={presentToday}
+                      icon={<CalendarCheck size={21} />}
+                    />
 
-                    <div className="stat-card">
-                      <span>Departments</span>
-                      <h2>{departments}</h2>
-                      <p>Organization units</p>
-                    </div>
-                    {/* DASHBOARD OVERVIEW */}
-<div className="dashboard-extra-grid">
+                    <StatCard
+                      title="Absent Today"
+                      value={absentToday}
+                      icon={<Clock size={21} />}
+                    />
 
-  <div className="dashboard-extra-card">
-    <h2>Attendance Overview</h2>
+                    <StatCard
+                      title="Pending Leaves"
+                      value={pendingLeaves}
+                      icon={<CalendarDays size={21} />}
+                    />
 
-    <div className="overview-row">
-      <span>Present Today</span>
-      <strong className="overview-green">{presentToday}</strong>
-    </div>
-
-    <div className="overview-row">
-      <span>Absent Today</span>
-      <strong className="overview-red">{absentToday}</strong>
-    </div>
-
-    <div className="overview-row">
-      <span>Total Employees</span>
-      <strong>{employees.length}</strong>
-    </div>
-  </div>
-
-  <div className="dashboard-extra-card">
-    <h2>Payroll Summary</h2>
-
-    <div className="payroll-highlight">
-      ₹{totalPayroll.toLocaleString('en-IN')}
-    </div>
-
-    <p>Total net salary of generated payslips</p>
-
-    <div className="overview-row">
-      <span>Generated Payslips</span>
-      <strong>{dashboardPayslips.length}</strong>
-    </div>
-  </div>
-
-</div>
-
-{/* RECENT LEAVE REQUESTS */}
-<div className="dashboard-extra-card recent-leaves-card">
-
-  <h2>Recent Leave Requests</h2>
-
-  {recentLeaves.length > 0 ? (
-    <div className="recent-leave-list">
-      {recentLeaves.map(leave => (
-        <div className="recent-leave-item" key={leave.id}>
-
-          <div>
-            <strong>{leave.employeeName}</strong>
-            <p>{leave.leaveType} · {leave.fromDate}</p>
-          </div>
-
-          <span className={`status-badge ${
-            leave.status === 'Approved'
-              ? 'active-status'
-              : leave.status === 'Rejected'
-              ? 'inactive-status'
-              : 'pending-status'
-          }`}>
-            {leave.status}
-          </span>
-
-        </div>
-      ))}
-    </div>
-  ) : (
-    <p>No leave requests available.</p>
-  )}
-
-</div>
+                    <StatCard
+                      title="Payroll Records"
+                      value={payroll.length}
+                      icon={<Wallet size={21} />}
+                    />
                   </div>
 
-                  <div className="welcome-panel">
-                    <h2>Welcome to your Admin Workspace</h2>
-                    <p>
-                      Manage employees, monitor attendance, review leave
-                      requests and access payslip information from one place.
-                    </p>
+                  <div className="dashboard-grid">
+                    <section className="panel">
+                      <div className="section-heading">
+                        <div>
+                          <h2>Recent Employees</h2>
+                          <p>Recently added employees</p>
+                        </div>
+
+                        <button
+                          type="button"
+                          className="text-button"
+                          onClick={() => navigateTo("Employees")}
+                        >
+                          View all →
+                        </button>
+                      </div>
+
+                      <EmployeeTable
+                        employees={employees.slice(-5).reverse()}
+                        onEdit={editEmployee}
+                        onDelete={deleteEmployee}
+                        isAdmin={false}
+                      />
+                    </section>
+
+                    <section className="panel">
+                      <div className="section-heading">
+                        <div>
+                          <h2>Pending Requests</h2>
+                          <p>Leave applications awaiting approval</p>
+                        </div>
+                      </div>
+
+                      {leaves.filter(
+                        (leave) => leave.status === "Pending"
+                      ).length === 0 ? (
+                        <EmptyState text="No pending requests." />
+                      ) : (
+                        leaves
+                          .filter(
+                            (leave) => leave.status === "Pending"
+                          )
+                          .slice(0, 5)
+                          .map((leave) => (
+                            <div
+                              className="activity-row"
+                              key={leave.id}
+                            >
+                              <div>
+                                <strong>
+                                  {employeeName(leave.employeeId)}
+                                </strong>
+                                <p>{leave.type}</p>
+                              </div>
+
+                              <StatusBadge status="Pending" />
+                            </div>
+                          ))
+                      )}
+                    </section>
                   </div>
                 </>
               ) : (
-                <div className="welcome-panel">
-                  <h2>Welcome to your Employee Workspace</h2>
-                  <p>
-                    View your personal details, check attendance,
-                    apply for leave and access your payslip.
-                  </p>
-                </div>
+                <>
+                  <div className="stats-grid">
+                    <StatCard
+                      title="Present Days"
+                      value={
+                        attendance.filter(
+                          (item) =>
+                            item.employeeId === myEmployee?.id &&
+                            item.status === "Present"
+                        ).length
+                      }
+                      icon={<CalendarCheck size={21} />}
+                    />
+
+                    <StatCard
+                      title="Leave Applications"
+                      value={
+                        leaves.filter(
+                          (leave) =>
+                            leave.employeeId === myEmployee?.id
+                        ).length
+                      }
+                      icon={<CalendarDays size={21} />}
+                    />
+
+                    <StatCard
+                      title="Payslips"
+                      value={
+                        payroll.filter(
+                          (item) =>
+                            item.employeeId === myEmployee?.id
+                        ).length
+                      }
+                      icon={<Wallet size={21} />}
+                    />
+                  </div>
+
+                  <section className="panel">
+                    <h2>Welcome to your workspace</h2>
+                    <p>
+                      Use Employee Services to view attendance, apply
+                      for leave and access your payslips.
+                    </p>
+                  </section>
+                </>
               )}
             </>
           )}
+                    {/* EMPLOYEES */}
 
-          {/* EMPLOYEE MANAGEMENT */}
-          {activeModule === 'Employees' && isAdmin && (
-            <>
-              <div className="page-heading employee-heading">
+          {page === "Employees" && isAdmin && (
+            <section className="panel">
+              <div className="section-heading">
                 <div>
+                  <span className="eyebrow">WORKFORCE</span>
                   <h1>Employee Management</h1>
-                  <p>Manage your organization's employee records.</p>
+                  <p>Manage your employee records.</p>
                 </div>
 
-                <button className="add-button" onClick={openAddForm}>
-                  + Add Employee
+                <button
+                  type="button"
+                  className="primary-button"
+                  onClick={() => {
+                    setEditingEmployee(null);
+                    setEmployeeForm(emptyEmployeeForm);
+                    setShowEmployeeForm(true);
+                  }}
+                >
+                  <Plus size={18} />
+                  Add Employee
                 </button>
               </div>
 
-              <div className="employee-summary">
-                <div>
-                  <span>Total Employees</span>
-                  <h2>{employees.length}</h2>
+              <div className="filter-row">
+                <div className="search-box">
+                  <Search size={18} />
+                  <input
+                    placeholder="Search employees..."
+                    value={search}
+                    onChange={(event) => setSearch(event.target.value)}
+                  />
                 </div>
 
-                <div>
-                  <span>Active Employees</span>
-                  <h2>
-                    {employees.filter(
-                      employee => employee.status === 'Active'
-                    ).length}
-                  </h2>
-                </div>
-
-                <div>
-                  <span>Departments</span>
-                  <h2>{departments}</h2>
-                </div>
+                <select
+                  value={departmentFilter}
+                  onChange={(event) =>
+                    setDepartmentFilter(event.target.value)
+                  }
+                >
+                  <option value="All">All Departments</option>
+                  {departments.map((department) => (
+                    <option key={department}>{department}</option>
+                  ))}
+                </select>
               </div>
 
               {showEmployeeForm && (
-                <div className="employee-form-card">
+                <form className="form-panel" onSubmit={saveEmployee}>
                   <h2>
-                    {editingEmployee ? 'Edit Employee' : 'Add New Employee'}
+                    {editingEmployee ? "Edit Employee" : "Add New Employee"}
                   </h2>
 
-                  <form onSubmit={handleEmployeeSubmit}>
-                    <div className="employee-form-grid">
-
-                      <div className="input-group">
-                        <label>Employee ID</label>
+                  <div className="form-grid">
+                    {[
+                      ["name", "Full Name", "text"],
+                      ["username", "Username", "text"],
+                      ["email", "Email Address", "email"],
+                      ["phone", "Phone Number", "tel"],
+                      ["designation", "Designation", "text"],
+                      ["joiningDate", "Joining Date", "date"],
+                      ["salary", "Monthly Salary", "number"],
+                    ].map(([key, label, type]) => (
+                      <label key={key}>
+                        {label}
                         <input
-                          type="text"
-                          name="id"
-                          value={employeeData.id}
-                          readOnly={!editingEmployee}
-                          onChange={handleEmployeeChange}
+                          type={type}
+                          min={type === "number" ? "0" : undefined}
+                          value={employeeForm[key] ?? ""}
+                          onChange={(event) =>
+                            setEmployeeForm({
+                              ...employeeForm,
+                              [key]: event.target.value,
+                            })
+                          }
                           required
                         />
-                      </div>
+                      </label>
+                    ))}
 
-                      <div className="input-group">
-                        <label>Full Name</label>
-                        <input
-                          type="text"
-                          name="name"
-                          value={employeeData.name}
-                          onChange={handleEmployeeChange}
-                          placeholder="Enter employee name"
-                          required
-                        />
-                      </div>
+                    <label>
+                      Department
+                      <select
+                        value={employeeForm.department}
+                        onChange={(event) =>
+                          setEmployeeForm({
+                            ...employeeForm,
+                            department: event.target.value,
+                          })
+                        }
+                        required
+                      >
+                        <option value="">Select Department</option>
+                        {departments.map((department) => (
+                          <option key={department}>{department}</option>
+                        ))}
+                      </select>
+                    </label>
 
-                      <div className="input-group">
-                        <label>Department</label>
-                        <select
-                          name="department"
-                          value={employeeData.department}
-                          onChange={handleEmployeeChange}
-                          required
-                        >
-                          <option value="">Select Department</option>
-                          <option value="IT">IT</option>
-                          <option value="HR">HR</option>
-                          <option value="Finance">Finance</option>
-                          <option value="Marketing">Marketing</option>
-                          <option value="Sales">Sales</option>
-                          <option value="Operations">Operations</option>
-                        </select>
-                      </div>
+                    <label>
+                      Status
+                      <select
+                        value={employeeForm.status}
+                        onChange={(event) =>
+                          setEmployeeForm({
+                            ...employeeForm,
+                            status: event.target.value,
+                          })
+                        }
+                      >
+                        <option>Active</option>
+                        <option>Inactive</option>
+                      </select>
+                    </label>
+                  </div>
 
-                      <div className="input-group">
-                        <label>Job Role</label>
-                        <input
-                          type="text"
-                          name="jobRole"
-                          value={employeeData.jobRole}
-                          onChange={handleEmployeeChange}
-                          placeholder="Enter job role"
-                          required
-                        />
-                      </div>
+                  <div className="form-actions">
+                    <button className="primary-button" type="submit">
+                      {editingEmployee ? "Update Employee" : "Save Employee"}
+                    </button>
 
-                      <div className="input-group">
-                        <label>Salary (₹)</label>
+                    <button
+                      className="secondary-button"
+                      type="button"
+                      onClick={() => {
+                        setShowEmployeeForm(false);
+                        setEditingEmployee(null);
+                      }}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </form>
+              )}
+
+              <EmployeeTable
+                employees={filteredEmployees}
+                onEdit={editEmployee}
+                onDelete={deleteEmployee}
+                isAdmin
+              />
+            </section>
+          )}
+
+          {/* DEPARTMENTS */}
+
+          {page === "Departments" && isAdmin && (
+            <section className="panel">
+              <span className="eyebrow">ORGANIZATION</span>
+              <h1>Departments</h1>
+              <p>Manage organization departments.</p>
+
+              <form className="inline-form" onSubmit={addDepartment}>
+                <input
+                  placeholder="Enter department name"
+                  value={departmentForm}
+                  onChange={(event) =>
+                    setDepartmentForm(event.target.value)
+                  }
+                  required
+                />
+
+                <button className="primary-button" type="submit">
+                  <Plus size={18} />
+                  Add Department
+                </button>
+              </form>
+
+              <div className="department-grid">
+                {departments.map((department) => (
+                  <div className="department-card" key={department}>
+                    <div className="stat-icon">
+                      <Building2 size={22} />
+                    </div>
+
+                    <h3>{department}</h3>
+
+                    <p>
+                      {
+                        employees.filter(
+                          (employee) => employee.department === department
+                        ).length
+                      }{" "}
+                      Employees
+                    </p>
+
+                    <button
+                      type="button"
+                      className="delete-action"
+                      onClick={() => deleteDepartment(department)}
+                    >
+                      <Trash2 size={17} />
+                      Remove
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {/* ATTENDANCE */}
+
+          {page === "Attendance" && (
+            <section className="panel">
+              <span className="eyebrow">EMPLOYEE SERVICES</span>
+              <h1>Attendance Management</h1>
+              <p>Track daily employee attendance.</p>
+
+              {isAdmin && (
+                <form className="inline-form" onSubmit={markAttendance}>
+                  <select
+                    value={attendanceForm.employeeId}
+                    onChange={(event) =>
+                      setAttendanceForm({
+                        ...attendanceForm,
+                        employeeId: event.target.value,
+                      })
+                    }
+                    required
+                  >
+                    <option value="">Select Employee</option>
+                    {employees.map((employee) => (
+                      <option key={employee.id} value={employee.id}>
+                        {employee.name}
+                      </option>
+                    ))}
+                  </select>
+
+                  <input
+                    type="date"
+                    value={attendanceForm.date}
+                    onChange={(event) =>
+                      setAttendanceForm({
+                        ...attendanceForm,
+                        date: event.target.value,
+                      })
+                    }
+                    required
+                  />
+
+                  <select
+                    value={attendanceForm.status}
+                    onChange={(event) =>
+                      setAttendanceForm({
+                        ...attendanceForm,
+                        status: event.target.value,
+                      })
+                    }
+                  >
+                    <option>Present</option>
+                    <option>Absent</option>
+                    <option>Leave</option>
+                  </select>
+
+                  <button className="primary-button" type="submit">
+                    Mark Attendance
+                  </button>
+                </form>
+              )}
+
+              <AttendanceTable
+                records={
+                  isAdmin
+                    ? attendance
+                    : attendance.filter(
+                        (item) => item.employeeId === myEmployee?.id
+                      )
+                }
+                employees={employees}
+              />
+            </section>
+          )}
+
+          {/* LEAVE MANAGEMENT */}
+
+          {page === "Leave Management" && (
+            <section className="panel">
+              <span className="eyebrow">EMPLOYEE SERVICES</span>
+              <h1>Leave Management</h1>
+              <p>Apply for leave and manage leave requests.</p>
+
+              <form className="form-panel" onSubmit={applyLeave}>
+                <h2>Apply for Leave</h2>
+
+                {isAdmin && (
+                  <label>
+                    Employee
+                    <select
+                      value={leaveForm.employeeId}
+                      onChange={(event) =>
+                        setLeaveForm({
+                          ...leaveForm,
+                          employeeId: event.target.value,
+                        })
+                      }
+                      required
+                    >
+                      <option value="">Select Employee</option>
+                      {employees.map((employee) => (
+                        <option key={employee.id} value={employee.id}>
+                          {employee.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                )}
+
+                <label>
+                  Leave Type
+                  <select
+                    value={leaveForm.type}
+                    onChange={(event) =>
+                      setLeaveForm({
+                        ...leaveForm,
+                        type: event.target.value,
+                      })
+                    }
+                  >
+                    <option>Casual Leave</option>
+                    <option>Sick Leave</option>
+                    <option>Earned Leave</option>
+                    <option>Personal Leave</option>
+                  </select>
+                </label>
+
+                <div className="form-grid">
+                  <label>
+                    From Date
+                    <input
+                      type="date"
+                      value={leaveForm.from}
+                      onChange={(event) =>
+                        setLeaveForm({
+                          ...leaveForm,
+                          from: event.target.value,
+                        })
+                      }
+                      required
+                    />
+                  </label>
+
+                  <label>
+                    To Date
+                    <input
+                      type="date"
+                      min={leaveForm.from || undefined}
+                      value={leaveForm.to}
+                      onChange={(event) =>
+                        setLeaveForm({
+                          ...leaveForm,
+                          to: event.target.value,
+                        })
+                      }
+                      required
+                    />
+                  </label>
+                </div>
+
+                <label>
+                  Reason
+                  <textarea
+                    value={leaveForm.reason}
+                    onChange={(event) =>
+                      setLeaveForm({
+                        ...leaveForm,
+                        reason: event.target.value,
+                      })
+                    }
+                    placeholder="Enter reason for leave"
+                    required
+                  />
+                </label>
+
+                <button className="primary-button" type="submit">
+                  Submit Leave Application
+                </button>
+              </form>
+
+              <LeaveTable
+                leaves={
+                  isAdmin
+                    ? leaves
+                    : leaves.filter(
+                        (leave) => leave.employeeId === myEmployee?.id
+                      )
+                }
+                employees={employees}
+                isAdmin={isAdmin}
+                onUpdate={updateLeave}
+              />
+            </section>
+          )}
+
+          {/* PAYSLIPS */}
+
+          {page === "Payslips" && (
+            <section className="panel">
+              <span className="eyebrow">EMPLOYEE SERVICES</span>
+              <h1>{isAdmin ? "Payroll Management" : "My Payslips"}</h1>
+              <p>Manage and view salary records.</p>
+
+              {isAdmin && (
+                <form className="form-panel" onSubmit={addPayroll}>
+                  <h2>Generate Payroll</h2>
+
+                  <label>
+                    Employee
+                    <select
+                      value={payrollForm.employeeId}
+                      onChange={(event) =>
+                        setPayrollForm({
+                          ...payrollForm,
+                          employeeId: event.target.value,
+                        })
+                      }
+                      required
+                    >
+                      <option value="">Select Employee</option>
+                      {employees.map((employee) => (
+                        <option key={employee.id} value={employee.id}>
+                          {employee.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <label>
+                    Payroll Month
+                    <input
+                      type="month"
+                      value={payrollForm.month}
+                      onChange={(event) =>
+                        setPayrollForm({
+                          ...payrollForm,
+                          month: event.target.value,
+                        })
+                      }
+                      required
+                    />
+                  </label>
+
+                  <div className="form-grid">
+                    {[
+                      ["basic", "Basic Salary"],
+                      ["allowances", "Allowances"],
+                      ["deductions", "Deductions"],
+                    ].map(([key, label]) => (
+                      <label key={key}>
+                        {label}
                         <input
                           type="number"
-                          name="salary"
-                          value={employeeData.salary}
-                          onChange={handleEmployeeChange}
-                          placeholder="Enter salary"
-                          min="1"
+                          min="0"
+                          value={payrollForm[key]}
+                          onChange={(event) =>
+                            setPayrollForm({
+                              ...payrollForm,
+                              [key]: event.target.value,
+                            })
+                          }
                           required
                         />
-                      </div>
+                      </label>
+                    ))}
+                  </div>
 
-                      <div className="input-group">
-                        <label>Email</label>
-                        <input
-                          type="email"
-                          name="email"
-                          value={employeeData.email}
-                          onChange={handleEmployeeChange}
-                          placeholder="Enter email address"
-                          required
-                        />
-                      </div>
-
-                      <div className="input-group">
-                        <label>Phone Number</label>
-                        <input
-                          type="tel"
-                          name="phone"
-                          value={employeeData.phone}
-                          onChange={handleEmployeeChange}
-                          placeholder="10-digit phone number"
-                          maxLength="10"
-                          required
-                        />
-                      </div>
-
-                      <div className="input-group">
-                        <label>Joining Date</label>
-                        <input
-                          type="date"
-                          name="joiningDate"
-                          value={employeeData.joiningDate}
-                          onChange={handleEmployeeChange}
-                          required
-                        />
-                      </div>
-
-                      <div className="input-group">
-                        <label>Status</label>
-                        <select
-                          name="status"
-                          value={employeeData.status}
-                          onChange={handleEmployeeChange}
-                        >
-                          <option value="Active">Active</option>
-                          <option value="Inactive">Inactive</option>
-                        </select>
-                      </div>
-
-                    </div>
-
-                    <div className="form-actions">
-                      <button type="submit" className="add-button">
-                        {editingEmployee ? 'Update Employee' : 'Save Employee'}
-                      </button>
-
-                      <button
-                        type="button"
-                        className="cancel-button"
-                        onClick={() => setShowEmployeeForm(false)}
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                  </form>
-                </div>
+                  <button className="primary-button" type="submit">
+                    Save Payroll Record
+                  </button>
+                </form>
               )}
 
-              <div className="employee-table-card">
-                <div className="table-header">
-                  <h2>Employee Records</h2>
-
-                  <input
-                    type="search"
-                    className="search-input"
-                    placeholder="Search employees..."
-                    value={searchTerm}
-                    onChange={e => setSearchTerm(e.target.value)}
-                  />
-                </div>
-
-                <div className="table-scroll">
-                  <table className="employee-table">
-                    <thead>
-                      <tr>
-                        <th>Employee ID</th>
-                        <th>Name</th>
-                        <th>Department</th>
-                        <th>Job Role</th>
-                        <th>Salary</th>
-                        <th>Status</th>
-                        <th>Actions</th>
-                      </tr>
-                    </thead>
-
-                    <tbody>
-                      {filteredEmployees.map(employee => (
-                        <tr key={employee.id}>
-                          <td>{employee.id}</td>
-                          <td>
-                            <strong>{employee.name}</strong>
-                          </td>
-                          <td>{employee.department}</td>
-                          <td>{employee.jobRole}</td>
-                          <td>
-                            ₹{Number(employee.salary).toLocaleString('en-IN')}
-                          </td>
-                          <td>
-                            <span
-                              className={
-                                employee.status === 'Active'
-                                  ? 'status-badge active-status'
-                                  : 'status-badge inactive-status'
-                              }
-                            >
-                              {employee.status}
-                            </span>
-                          </td>
-                          <td>
-                            <div className="action-buttons">
-                              <button
-                                className="edit-button"
-                                onClick={() => openEditForm(employee)}
-                              >
-                                Edit
-                              </button>
-
-                              <button
-                                className="delete-button"
-                                onClick={() => deleteEmployee(employee.id)}
-                              >
-                                Delete
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-
-                      {filteredEmployees.length === 0 && (
-                        <tr>
-                          <td colSpan="7" className="empty-row">
-                            No employee records found.
-                          </td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </>
+              <PayslipTable
+                payroll={
+                  isAdmin
+                    ? payroll
+                    : payroll.filter(
+                        (item) => item.employeeId === myEmployee?.id
+                      )
+                }
+                employees={employees}
+              />
+            </section>
           )}
 
+          {/* MY PROFILE */}
 
-                    {/* ATTENDANCE MANAGEMENT */}
-          {activeModule === 'Attendance' && isAdmin && (
-            <>
-              <div className="page-heading employee-heading">
+          {page === "My Profile" && !isAdmin && (
+            <section className="panel">
+              <span className="eyebrow">PERSONAL INFORMATION</span>
+              <h1>My Profile</h1>
+              <p>View your employee information.</p>
+
+              <div className="profile-card">
+                <div className="profile-avatar">
+                  {currentUser.name.charAt(0).toUpperCase()}
+                </div>
+
                 <div>
-                  <h1>Attendance Management</h1>
-                  <p>Record and monitor daily employee attendance.</p>
+                  <h2>{currentUser.name}</h2>
+                  <p>{currentUser.role}</p>
+                </div>
+              </div>
+
+              {myEmployee ? (
+                <div className="profile-details">
+                  {[
+                    ["Employee ID", myEmployee.id],
+                    ["Full Name", myEmployee.name],
+                    ["Username", myEmployee.username],
+                    ["Email", myEmployee.email],
+                    ["Phone", myEmployee.phone],
+                    ["Department", myEmployee.department],
+                    ["Designation", myEmployee.designation],
+                    ["Joining Date", formatDate(myEmployee.joiningDate)],
+                    ["Status", myEmployee.status],
+                  ].map(([label, value]) => (
+                    <div className="profile-detail" key={label}>
+                      <span>{label}</span>
+                      <strong>{value || "—"}</strong>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <EmptyState text="Employee profile not found." />
+              )}
+            </section>
+          )}
+
+          {/* REPORTS */}
+
+          {page === "Reports" && isAdmin && (
+            <section className="panel">
+              <span className="eyebrow">ANALYTICS</span>
+              <h1>Reports</h1>
+              <p>Review organization information and export records.</p>
+
+              <div className="stats-grid">
+                <StatCard
+                  title="Total Employees"
+                  value={totalEmployees}
+                  icon={<Users size={21} />}
+                />
+
+                <StatCard
+                  title="Departments"
+                  value={departments.length}
+                  icon={<Building2 size={21} />}
+                />
+
+                <StatCard
+                  title="Attendance Records"
+                  value={attendance.length}
+                  icon={<CalendarCheck size={21} />}
+                />
+
+                <StatCard
+                  title="Total Payroll"
+                  value={formatCurrency(totalPayroll)}
+                  icon={<IndianRupee size={21} />}
+                />
+              </div>
+
+              <div className="report-card">
+                <div>
+                  <h2>Employee Report</h2>
+                  <p>Download employee information as a CSV file.</p>
                 </div>
 
                 <button
-                  className="add-button"
-                  onClick={() => setShowAttendanceForm(!showAttendanceForm)}
+                  type="button"
+                  className="primary-button"
+                  onClick={exportEmployees}
                 >
-                  {showAttendanceForm ? 'Close Form' : '+ Mark Attendance'}
+                  <Download size={18} />
+                  Export CSV
                 </button>
               </div>
+            </section>
+          )}
 
-              <div className="employee-summary">
-                <div>
-                  <span>Total Records</span>
-                  <h2>{attendanceRecords.length}</h2>
-                </div>
+          {/* NOTICES */}
 
-                <div>
-                  <span>Present Today</span>
-                  <h2>
-                    {attendanceRecords.filter(
-                      record =>
-                        record.date === todayDate &&
-                        record.status === 'Present'
-                    ).length}
-                  </h2>
-                </div>
+          {page === "Notices" && (
+            <section className="panel">
+              <span className="eyebrow">ANNOUNCEMENTS</span>
+              <h1>Notices</h1>
+              <p>Organization announcements and updates.</p>
 
-                <div>
-                  <span>Absent Today</span>
-                  <h2>
-                    {attendanceRecords.filter(
-                      record =>
-                        record.date === todayDate &&
-                        record.status === 'Absent'
-                    ).length}
-                  </h2>
-                </div>
-              </div>
+              {isAdmin && (
+                <form className="form-panel" onSubmit={addNotice}>
+                  <h2>Publish Notice</h2>
 
-              {showAttendanceForm && (
-                <div className="employee-form-card">
-                  <h2>Mark Employee Attendance</h2>
+                  <label>
+                    Notice Title
+                    <input
+                      value={noticeForm.title}
+                      onChange={(event) =>
+                        setNoticeForm({
+                          ...noticeForm,
+                          title: event.target.value,
+                        })
+                      }
+                      required
+                    />
+                  </label>
 
-                  <form onSubmit={handleAttendanceSubmit}>
-                    <div className="employee-form-grid">
+                  <label>
+                    Description
+                    <textarea
+                      value={noticeForm.description}
+                      onChange={(event) =>
+                        setNoticeForm({
+                          ...noticeForm,
+                          description: event.target.value,
+                        })
+                      }
+                      required
+                    />
+                  </label>
 
-                      <div className="input-group">
-                        <label>Employee</label>
-
-                        <select
-                          value={attendanceData.employeeId}
-                          onChange={e =>
-                            setAttendanceData({
-                              ...attendanceData,
-                              employeeId: e.target.value
-                            })
-                          }
-                          required
-                        >
-                          <option value="">Select Employee</option>
-
-                          {employees.map(employee => (
-                            <option key={employee.id} value={employee.id}>
-                              {employee.id} - {employee.name}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-
-                      <div className="input-group">
-                        <label>Date</label>
-
-                        <input
-                          type="date"
-                          value={attendanceData.date}
-                          onChange={e =>
-                            setAttendanceData({
-                              ...attendanceData,
-                              date: e.target.value
-                            })
-                          }
-                          required
-                        />
-                      </div>
-
-                      <div className="input-group">
-                        <label>Attendance Status</label>
-
-                        <select
-                          value={attendanceData.status}
-                          onChange={e =>
-                            setAttendanceData({
-                              ...attendanceData,
-                              status: e.target.value
-                            })
-                          }
-                          required
-                        >
-                          <option value="Present">Present</option>
-                          <option value="Absent">Absent</option>
-                          <option value="Leave">Leave</option>
-                        </select>
-                      </div>
-
-                    </div>
-
-                    <div className="form-actions">
-                      <button type="submit" className="add-button">
-                        Save Attendance
-                      </button>
-
-                      <button
-                        type="button"
-                        className="cancel-button"
-                        onClick={() => setShowAttendanceForm(false)}
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                  </form>
-                </div>
+                  <button className="primary-button" type="submit">
+                    Publish Notice
+                  </button>
+                </form>
               )}
 
-              <div className="employee-table-card">
-                <div className="table-header">
-                  <h2>Attendance Records</h2>
+              <div className="notice-list">
+                {notices.length === 0 ? (
+                  <EmptyState text="No notices published." />
+                ) : (
+                  [...notices].reverse().map((notice) => (
+                    <article className="notice-card" key={notice.id}>
+                      <div className="notice-icon">
+                        <Megaphone size={21} />
+                      </div>
 
-                  <input
-                    type="search"
-                    className="search-input"
-                    placeholder="Search attendance..."
-                    value={attendanceSearch}
-                    onChange={e => setAttendanceSearch(e.target.value)}
-                  />
-                </div>
+                      <div className="notice-content">
+                        <h3>{notice.title}</h3>
+                        <p>{notice.description}</p>
+                        <small>{formatDate(notice.date)}</small>
+                      </div>
 
-                <div className="table-scroll">
-                  <table className="employee-table">
-                    <thead>
-                      <tr>
-                        <th>Employee ID</th>
-                        <th>Employee Name</th>
-                        <th>Date</th>
-                        <th>Status</th>
-                        <th>Action</th>
-                      </tr>
-                    </thead>
-
-                    <tbody>
-                      {attendanceRecords
-                        .filter(record =>
-                          `${record.employeeId} ${record.employeeName} ${record.date} ${record.status}`
-                            .toLowerCase()
-                            .includes(attendanceSearch.toLowerCase())
-                        )
-                        .map(record => (
-                          <tr key={record.id}>
-                            <td>{record.employeeId}</td>
-                            <td>{record.employeeName}</td>
-                            <td>{record.date}</td>
-                            <td>
-                              <span
-                                className={`status-badge ${
-                                  record.status === 'Present'
-                                    ? 'active-status'
-                                    : record.status === 'Absent'
-                                    ? 'inactive-status'
-                                    : 'pending-status'
-                                }`}
-                              >
-                                {record.status}
-                              </span>
-                            </td>
-                            <td>
-                              <button
-                                className="delete-button"
-                                onClick={() => deleteAttendance(record.id)}
-                              >
-                                Delete
-                              </button>
-                            </td>
-                          </tr>
-                        ))}
-
-                      {attendanceRecords.filter(record =>
-                        `${record.employeeId} ${record.employeeName} ${record.date} ${record.status}`
-                          .toLowerCase()
-                          .includes(attendanceSearch.toLowerCase())
-                      ).length === 0 && (
-                        <tr>
-                          <td colSpan="5" className="empty-row">
-                            No attendance records found.
-                          </td>
-                        </tr>
+                      {isAdmin && (
+                        <button
+                          type="button"
+                          className="delete-action"
+                          onClick={() => deleteNotice(notice.id)}
+                        >
+                          <Trash2 size={17} />
+                        </button>
                       )}
-                    </tbody>
-                  </table>
-                </div>
+                    </article>
+                  ))
+                )}
               </div>
-            </>
+            </section>
           )}
 
-                    {/* ADMIN LEAVE MANAGEMENT */}
-          {/* EMPLOYEE MY ATTENDANCE */}
-          {activeModule === 'My Attendance' && !isAdmin && (
-            <>
-              <div className="page-heading employee-heading">
-                <div>
-                  <h1>My Attendance</h1>
-                  <p>View your daily attendance history.</p>
-                </div>
-              </div>
+          {/* HOLIDAYS */}
 
-              <div className="employee-summary">
-                <div>
-                  <span>Total Records</span>
-                  <h2>{attendanceRecords.filter(record =>
-                    record.employeeName?.trim().toLowerCase() ===
-                    loggedInUser?.name?.trim().toLowerCase()
-                  ).length}</h2>
-                </div>
-                <div>
-                  <span>Present Days</span>
-                  <h2>{attendanceRecords.filter(record =>
-                    record.employeeName?.trim().toLowerCase() ===
-                    loggedInUser?.name?.trim().toLowerCase() && record.status === 'Present'
-                  ).length}</h2>
-                </div>
-                <div>
-                  <span>Absent Days</span>
-                  <h2>{attendanceRecords.filter(record =>
-                    record.employeeName?.trim().toLowerCase() ===
-                    loggedInUser?.name?.trim().toLowerCase() && record.status === 'Absent'
-                  ).length}</h2>
-                </div>
-                <div>
-                  <span>Leave Days</span>
-                  <h2>{attendanceRecords.filter(record =>
-                    record.employeeName?.trim().toLowerCase() ===
-                    loggedInUser?.name?.trim().toLowerCase() && record.status === 'Leave'
-                  ).length}</h2>
-                </div>
-              </div>
+          {page === "Holidays" && (
+            <section className="panel">
+              <span className="eyebrow">CALENDAR</span>
+              <h1>Holiday Calendar</h1>
+              <p>View organization holidays.</p>
 
-              <div className="employee-table-card">
-                <div className="table-header">
-                  <h2>My Attendance History</h2>
+              {isAdmin && (
+                <form className="inline-form" onSubmit={addHoliday}>
                   <input
-                    type="search"
-                    className="search-input"
-                    placeholder="Search date or status..."
-                    value={myAttendanceSearch}
-                    onChange={e => setMyAttendanceSearch(e.target.value)}
+                    placeholder="Holiday name"
+                    value={holidayForm.name}
+                    onChange={(event) =>
+                      setHolidayForm({
+                        ...holidayForm,
+                        name: event.target.value,
+                      })
+                    }
+                    required
                   />
-                </div>
-                <div className="table-scroll">
-                  <table className="employee-table">
-                    <thead>
-                      <tr>
-                        <th>Date</th>
-                        <th>Status</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {attendanceRecords
-                        .filter(record =>
-                          record.employeeName?.trim().toLowerCase() ===
-                          loggedInUser?.name?.trim().toLowerCase()
-                        )
-                        .filter(record =>
-                          `${record.date} ${record.status}`.toLowerCase().includes(myAttendanceSearch.toLowerCase())
-                        )
-                        .slice()
-                        .sort((a, b) => b.date.localeCompare(a.date))
-                        .map(record => (
-                          <tr key={record.id}>
-                            <td>{record.date}</td>
-                            <td>
-                              <span className={`status-badge ${
-                                record.status === 'Present'
-                                  ? 'active-status'
-                                  : record.status === 'Absent'
-                                  ? 'inactive-status'
-                                  : 'pending-status'
-                              }`}>
-                                {record.status}
-                              </span>
-                            </td>
-                          </tr>
-                        ))}
-                      {attendanceRecords.filter(record =>
-                        record.employeeName?.trim().toLowerCase() ===
-                        loggedInUser?.name?.trim().toLowerCase()
-                      ).filter(record =>
-                        `${record.date} ${record.status}`.toLowerCase().includes(myAttendanceSearch.toLowerCase())
-                      ).length === 0 && (
-                        <tr>
-                          <td colSpan="2" className="empty-row">
-                            {myAttendanceSearch
-                              ? 'No attendance records match your search.'
-                              : 'No attendance records found for your account yet.'}
-                          </td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </>
-          )}
-
-          {activeModule === 'Leave' && isAdmin && (
-            <>
-              <div className="page-heading employee-heading">
-                <div>
-                  <h1>Leave Management</h1>
-                  <p>Review and manage employee leave applications.</p>
-                </div>
-              </div>
-
-              <div className="employee-summary">
-                <div>
-                  <span>Total Applications</span>
-                  <h2>{leaveRecords.length}</h2>
-                </div>
-
-                <div>
-                  <span>Pending Requests</span>
-                  <h2>
-                    {leaveRecords.filter(
-                      record => record.status === 'Pending'
-                    ).length}
-                  </h2>
-                </div>
-
-                <div>
-                  <span>Approved Requests</span>
-                  <h2>
-                    {leaveRecords.filter(
-                      record => record.status === 'Approved'
-                    ).length}
-                  </h2>
-                </div>
-              </div>
-
-              <div className="employee-table-card">
-                <div className="table-header">
-                  <h2>Leave Applications</h2>
 
                   <input
-                    type="search"
-                    className="search-input"
-                    placeholder="Search employee..."
-                    value={leaveSearch}
-                    onChange={e => setLeaveSearch(e.target.value)}
+                    type="date"
+                    value={holidayForm.date}
+                    onChange={(event) =>
+                      setHolidayForm({
+                        ...holidayForm,
+                        date: event.target.value,
+                      })
+                    }
+                    required
                   />
-                </div>
 
-                <div className="table-scroll">
-                  <table className="employee-table">
-                    <thead>
-                      <tr>
-                        <th>Employee ID</th>
-                        <th>Employee Name</th>
-                        <th>Leave Type</th>
-                        <th>From</th>
-                        <th>To</th>
-                        <th>Reason</th>
-                        <th>Status</th>
-                        <th>Actions</th>
-                      </tr>
-                    </thead>
+                  <button className="primary-button" type="submit">
+                    <Plus size={18} />
+                    Add Holiday
+                  </button>
+                </form>
+              )}
 
-                    <tbody>
-                      {leaveRecords
-                        .filter(record =>
-                          `${record.employeeId} ${record.employeeName}`
-                            .toLowerCase()
-                            .includes(leaveSearch.toLowerCase())
-                        )
-                        .slice()
-                        .sort((a, b) =>
-                          b.appliedOn.localeCompare(a.appliedOn)
-                        )
-                        .map(record => (
-                          <tr key={record.id}>
-                            <td>{record.employeeId}</td>
-                            <td>
-                              <strong>{record.employeeName}</strong>
-                            </td>
-                            <td>{record.leaveType}</td>
-                            <td>{record.fromDate}</td>
-                            <td>{record.toDate}</td>
-                            <td className="leave-reason">
-                              {record.reason}
-                            </td>
-                            <td>
-                              <span
-                                className={`status-badge ${
-                                  record.status === 'Approved'
-                                    ? 'active-status'
-                                    : record.status === 'Rejected'
-                                    ? 'inactive-status'
-                                    : 'pending-status'
-                                }`}
-                              >
-                                {record.status}
-                              </span>
-                            </td>
-                            <td>
-                              {record.status === 'Pending' ? (
-                                <div className="action-buttons">
-                                  <button
-                                    className="approve-button"
-                                    onClick={() =>
-                                      updateLeaveStatus(record.id, 'Approved')
-                                    }
-                                  >
-                                    Approve
-                                  </button>
+              <div className="holiday-list">
+                {holidays.length === 0 ? (
+                  <EmptyState text="No holidays added yet." />
+                ) : (
+                  [...holidays]
+                    .sort((a, b) => a.date.localeCompare(b.date))
+                    .map((holiday) => (
+                      <div className="holiday-card" key={holiday.id}>
+                        <div className="holiday-date">
+                          <CalendarDays size={22} />
+                          <strong>{formatDate(holiday.date)}</strong>
+                        </div>
 
-                                  <button
-                                    className="delete-button"
-                                    onClick={() =>
-                                      updateLeaveStatus(record.id, 'Rejected')
-                                    }
-                                  >
-                                    Reject
-                                  </button>
-                                </div>
-                              ) : (
-                                <button
-                                  className="delete-button"
-                                  onClick={() => deleteLeave(record.id)}
-                                >
-                                  Delete
-                                </button>
-                              )}
-                            </td>
-                          </tr>
-                        ))}
+                        <h3>{holiday.name}</h3>
 
-                      {leaveRecords.filter(record =>
-                        `${record.employeeId} ${record.employeeName}`
-                          .toLowerCase()
-                          .includes(leaveSearch.toLowerCase())
-                      ).length === 0 && (
-                        <tr>
-                          <td colSpan="8" className="empty-row">
-                            No leave applications found.
-                          </td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
-                </div>
+                        {isAdmin && (
+                          <button
+                            type="button"
+                            className="delete-action"
+                            onClick={() => deleteHoliday(holiday.id)}
+                          >
+                            <Trash2 size={17} />
+                          </button>
+                        )}
+                      </div>
+                    ))
+                )}
               </div>
-            </>
+            </section>
           )}
 
-          {/* EMPLOYEE APPLY LEAVE */}
-          {activeModule === 'Apply Leave' && !isAdmin && (
-            <>
-              <div className="page-heading employee-heading">
-                <div>
-                  <h1>Apply for Leave</h1>
-                  <p>
-                    Submit a leave request and track its approval status.
-                  </p>
-                </div>
+          {/* SETTINGS */}
 
-                <button
-                  className="add-button"
-                  onClick={() => setShowLeaveForm(!showLeaveForm)}
-                >
-                  {showLeaveForm ? 'Close Form' : '+ Apply Leave'}
+          {page === "Settings" && (
+            <section className="panel">
+              <span className="eyebrow">ACCOUNT</span>
+              <h1>Settings</h1>
+              <p>Manage your account settings.</p>
+
+              <div className="settings-card">
+                <h2>Account Information</h2>
+
+                <div className="profile-details">
+                  <div className="profile-detail">
+                    <span>Name</span>
+                    <strong>{currentUser.name}</strong>
+                  </div>
+
+                  <div className="profile-detail">
+                    <span>Username</span>
+                    <strong>{currentUser.username}</strong>
+                  </div>
+
+                  <div className="profile-detail">
+                    <span>Email</span>
+                    <strong>{currentUser.email || "—"}</strong>
+                  </div>
+
+                  <div className="profile-detail">
+                    <span>Role</span>
+                    <strong>{currentUser.role}</strong>
+                  </div>
+                </div>
+              </div>
+
+              <form className="form-panel" onSubmit={changePassword}>
+                <h2>Change Password</h2>
+
+                <label>
+                  Current Password
+                  <input
+                    type="password"
+                    value={passwordForm.currentPassword}
+                    onChange={(event) =>
+                      setPasswordForm({
+                        ...passwordForm,
+                        currentPassword: event.target.value,
+                      })
+                    }
+                    required
+                  />
+                </label>
+
+                <label>
+                  New Password
+                  <input
+                    type="password"
+                    value={passwordForm.newPassword}
+                    onChange={(event) =>
+                      setPasswordForm({
+                        ...passwordForm,
+                        newPassword: event.target.value,
+                      })
+                    }
+                    required
+                  />
+                </label>
+
+                <label>
+                  Confirm New Password
+                  <input
+                    type="password"
+                    value={passwordForm.confirmPassword}
+                    onChange={(event) =>
+                      setPasswordForm({
+                        ...passwordForm,
+                        confirmPassword: event.target.value,
+                      })
+                    }
+                    required
+                  />
+                </label>
+
+                <small className="password-hint">
+                  Use at least 8 characters, including uppercase,
+                  lowercase, number and special character.
+                </small>
+
+                <button className="primary-button" type="submit">
+                  Update Password
                 </button>
-              </div>
-
-              {showLeaveForm && (
-                <div className="employee-form-card">
-                  <h2>New Leave Application</h2>
-
-                  <form onSubmit={handleLeaveSubmit}>
-                    <div className="employee-form-grid">
-
-                      <div className="input-group">
-                        <label>Leave Type</label>
-
-                        <select
-                          value={leaveData.leaveType}
-                          onChange={e =>
-                            setLeaveData({
-                              ...leaveData,
-                              leaveType: e.target.value
-                            })
-                          }
-                          required
-                        >
-                          <option>Casual Leave</option>
-                          <option>Sick Leave</option>
-                          <option>Earned Leave</option>
-                        </select>
-                      </div>
-
-                      <div className="input-group">
-                        <label>From Date</label>
-
-                        <input
-                          type="date"
-                          min={todayDate}
-                          value={leaveData.fromDate}
-                          onChange={e =>
-                            setLeaveData({
-                              ...leaveData,
-                              fromDate: e.target.value
-                            })
-                          }
-                          required
-                        />
-                      </div>
-
-                      <div className="input-group">
-                        <label>To Date</label>
-
-                        <input
-                          type="date"
-                          min={leaveData.fromDate || todayDate}
-                          value={leaveData.toDate}
-                          onChange={e =>
-                            setLeaveData({
-                              ...leaveData,
-                              toDate: e.target.value
-                            })
-                          }
-                          required
-                        />
-                      </div>
-
-                      <div className="input-group leave-reason-field">
-                        <label>Reason</label>
-
-                        <input
-                          type="text"
-                          placeholder="Enter reason for leave"
-                          value={leaveData.reason}
-                          onChange={e =>
-                            setLeaveData({
-                              ...leaveData,
-                              reason: e.target.value
-                            })
-                          }
-                          maxLength="180"
-                          required
-                        />
-                      </div>
-
-                    </div>
-
-                    <div className="form-actions">
-                      <button type="submit" className="add-button">
-                        Submit Application
-                      </button>
-
-                      <button
-                        type="button"
-                        className="cancel-button"
-                        onClick={() => setShowLeaveForm(false)}
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                  </form>
-                </div>
-              )}
-
-              <div className="employee-table-card">
-                <div className="table-header">
-                  <h2>My Leave Applications</h2>
-                </div>
-
-                <div className="table-scroll">
-                  <table className="employee-table">
-                    <thead>
-                      <tr>
-                        <th>Leave Type</th>
-                        <th>From Date</th>
-                        <th>To Date</th>
-                        <th>Reason</th>
-                        <th>Status</th>
-                      </tr>
-                    </thead>
-
-                    <tbody>
-                      {leaveRecords
-                        .filter(
-                          record =>
-                            record.employeeName.trim().toLowerCase() ===
-                            loggedInUser?.name?.trim().toLowerCase()
-                        )
-                        .slice()
-                        .sort((a, b) =>
-                          b.appliedOn.localeCompare(a.appliedOn)
-                        )
-                        .map(record => (
-                          <tr key={record.id}>
-                            <td>{record.leaveType}</td>
-                            <td>{record.fromDate}</td>
-                            <td>{record.toDate}</td>
-                            <td className="leave-reason">
-                              {record.reason}
-                            </td>
-                            <td>
-                              <span
-                                className={`status-badge ${
-                                  record.status === 'Approved'
-                                    ? 'active-status'
-                                    : record.status === 'Rejected'
-                                    ? 'inactive-status'
-                                    : 'pending-status'
-                                }`}
-                              >
-                                {record.status}
-                              </span>
-                            </td>
-                          </tr>
-                        ))}
-
-                      {leaveRecords.filter(
-                        record =>
-                          record.employeeName.trim().toLowerCase() ===
-                          loggedInUser?.name?.trim().toLowerCase()
-                      ).length === 0 && (
-                        <tr>
-                          <td colSpan="5" className="empty-row">
-                            You have not submitted any leave applications.
-                          </td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </>
+              </form>
+            </section>
           )}
-          {/* ADMIN PAYSLIP MANAGEMENT */}
-          {activeModule === 'Payslip' && isAdmin && (
-            <Payslip
-              isAdmin={true}
-              loggedInUser={loggedInUser}
-              employees={employees}
-            />
-          )}
+        </div>
 
-          {/* EMPLOYEE MY PAYSLIP */}
-          {activeModule === 'My Payslip' && !isAdmin && (
-            <Payslip
-              isAdmin={false}
-              loggedInUser={loggedInUser}
-              employees={employees}
-            />
-          )}
-
-          {/* OTHER MODULES */}
-
-          {activeModule !== 'Dashboard' &&
-            activeModule !== 'Employees' &&
-          activeModule !== 'My Details' &&
-            activeModule !== 'Attendance' &&
-            activeModule !== 'My Attendance' &&
-            activeModule !== 'Leave' &&
-            activeModule !== 'Apply Leave' &&
-            activeModule !== 'Payslip' &&
-            activeModule !== 'My Payslip' && (
-              <div className="welcome-panel">
-                <h2>{activeModule}</h2>
-                <p>
-                  This module will be implemented in the upcoming
-                  development steps.
-                </p>
-              </div>
-            )}
-                    </section>
+        <footer className="app-footer">
+          © {new Date().getFullYear()} PeopleDesk. All rights reserved.
+        </footer>
       </main>
     </div>
   );
 }
-
-export default App;

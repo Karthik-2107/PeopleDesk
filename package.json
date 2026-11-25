@@ -12,6 +12,8 @@
     "deploy": "gh-pages -d dist"
   },
   "dependencies": {
+    "bootstrap": "^5.3.9",
+    "lucide-react": "^1.80.0",
     "react": "^19.3.1",
     "react-dom": "^19.3.1"
   },
