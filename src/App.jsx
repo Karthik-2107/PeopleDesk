@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import './App.css';
 import Payslip from './Payslip';
 import MyDetails from './MyDetails';
@@ -82,7 +82,7 @@ function App() {
   });
 
   // LOGIN STATUS
-  const [page, setPage] = useState(() => {
+  const [page, setPageState] = useState(() => {
     return localStorage.getItem('isLoggedIn') === 'true' &&
       localStorage.getItem('loggedInUser')
       ? 'dashboard'
@@ -138,7 +138,110 @@ function App() {
 
   const [leaveSearch, setLeaveSearch] = useState('');
 
-  const [activeModule, setActiveModule] = useState('Dashboard');
+  const [activeModule, setActiveModuleState] = useState('Dashboard');
+
+  // BROWSER BACK / FORWARD NAVIGATION
+  // Each internal page or sidebar module is saved in browser history.
+  const navigationStateRef = useRef({ page, activeModule });
+  const handlingPopStateRef = useRef(false);
+
+  useEffect(() => {
+    navigationStateRef.current = { page, activeModule };
+
+    // Mark the current page as a PeopleDesk history entry.
+    window.history.replaceState(
+      { ...window.history.state, peopleDesk: true, page, activeModule },
+      '',
+      window.location.href
+    );
+
+    const handleBrowserNavigation = (event) => {
+      if (event.state?.peopleDesk) {
+        const previousPage = event.state.page || 'login';
+        const previousModule = event.state.activeModule || 'Dashboard';
+
+        handlingPopStateRef.current = true;
+        navigationStateRef.current = {
+          page: previousPage,
+          activeModule: previousModule
+        };
+
+        setPageState(previousPage);
+        setActiveModuleState(previousModule);
+
+        // Allow the next user navigation to create a new history entry.
+        window.setTimeout(() => {
+          handlingPopStateRef.current = false;
+        }, 0);
+      }
+    };
+
+    window.addEventListener('popstate', handleBrowserNavigation);
+    return () => {
+      window.removeEventListener('popstate', handleBrowserNavigation);
+    };
+  }, []);
+
+  // Keep the existing setPage calls and save each page change in history.
+  const setPage = (nextPage) => {
+    const resolvedPage =
+      typeof nextPage === 'function'
+        ? nextPage(navigationStateRef.current.page)
+        : nextPage;
+
+    if (resolvedPage === navigationStateRef.current.page) {
+      setPageState(resolvedPage);
+      return;
+    }
+
+    const nextNavigationState = {
+      ...navigationStateRef.current,
+      page: resolvedPage
+    };
+
+    navigationStateRef.current = nextNavigationState;
+
+    if (!handlingPopStateRef.current) {
+      window.history.pushState(
+        { peopleDesk: true, ...nextNavigationState },
+        '',
+        window.location.href
+      );
+    }
+
+    setPageState(resolvedPage);
+  };
+
+  // Keep the existing sidebar calls and save module changes in history.
+  const setActiveModule = (nextModule) => {
+    const resolvedModule =
+      typeof nextModule === 'function'
+        ? nextModule(navigationStateRef.current.activeModule)
+        : nextModule;
+
+    if (resolvedModule === navigationStateRef.current.activeModule) {
+      setActiveModuleState(resolvedModule);
+      return;
+    }
+
+    const nextNavigationState = {
+      ...navigationStateRef.current,
+      activeModule: resolvedModule
+    };
+
+    navigationStateRef.current = nextNavigationState;
+
+    if (!handlingPopStateRef.current) {
+      window.history.pushState(
+        { peopleDesk: true, ...nextNavigationState },
+        '',
+        window.location.href
+      );
+    }
+
+    setActiveModuleState(resolvedModule);
+  };
+
 
   // LOGIN AND SIGNUP DATA
   const [loginData, setLoginData] = useState({
