@@ -422,6 +422,8 @@ export default function App() {
   const [page, setPage] = useState("Dashboard");
   const [servicesOpen, setServicesOpen] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  const [showNotifications, setShowNotifications] = useState(false);
+  const [notificationRefresh, setNotificationRefresh] = useState(0);
 
   const [message, setMessage] = useState("");
   const [search, setSearch] = useState("");
@@ -547,6 +549,32 @@ export default function App() {
     (employee) => employee.userId === currentUser?.id
   );
 
+  const readNoticeStorageKey = currentUser
+    ? `peopledesk_notice_reads_${currentUser.id}`
+    : null;
+  const readNoticeIds = currentUser && !isAdmin
+    ? getStoredData(readNoticeStorageKey, [])
+    : [];
+  const unreadNotices = currentUser && !isAdmin
+    ? notices.filter((notice) => !readNoticeIds.includes(notice.id))
+    : [];
+  void notificationRefresh;
+
+  function markNoticeAsRead(noticeId) {
+    if (!currentUser || isAdmin) return;
+    const existing = getStoredData(readNoticeStorageKey, []);
+    if (!existing.includes(noticeId)) {
+      saveData(readNoticeStorageKey, [...existing, noticeId]);
+      setNotificationRefresh((value) => value + 1);
+    }
+  }
+
+  function markAllNoticesAsRead() {
+    if (!currentUser || isAdmin) return;
+    saveData(readNoticeStorageKey, notices.map((notice) => notice.id));
+    setNotificationRefresh((value) => value + 1);
+  }
+
   const totalEmployees = employees.length;
 
   const activeEmployees = employees.filter(
@@ -658,10 +686,20 @@ export default function App() {
     setCurrentUser(user);
     setLoginForm({ username: "", password: "" });
     setPage("Dashboard");
+    if (user.role === "Employee") {
+      const readIds = getStoredData(`peopledesk_notice_reads_${user.id}`, []);
+      const newNoticeCount = notices.filter(
+        (notice) => !readIds.includes(notice.id)
+      ).length;
+      setShowNotifications(newNoticeCount > 0);
+    } else {
+      setShowNotifications(false);
+    }
   }
 
   function handleLogout() {
     setCurrentUser(null);
+    setShowNotifications(false);
     setPage("Dashboard");
     setServicesOpen(false);
     setMessage("");
@@ -673,6 +711,11 @@ export default function App() {
     // Employee accounts can only be created or maintained by an Admin.
     if (!isAdmin) {
       setMessage("Only administrators can manage employee accounts.");
+      return;
+    }
+
+    if (!employeeForm.joiningDate || employeeForm.joiningDate > getToday()) {
+      alert("Joining date cannot be in the future. Please select today or an earlier date.");
       return;
     }
 
@@ -969,6 +1012,7 @@ export default function App() {
     ]);
 
     setNoticeForm({ title: "", description: "" });
+    alert("Notice published successfully. Employees will be notified when they log in.");
   }
 
   function deleteNotice(id) {
@@ -1378,13 +1422,56 @@ export default function App() {
               {formatDate(getToday())}
             </div>
 
-            <button
-              type="button"
-              className="notification-button"
-              title="Notifications"
-            >
-              <Bell size={19} />
-            </button>
+            <div className="notification-wrap">
+              <button
+                type="button"
+                className="notification-button"
+                title="Notifications"
+                aria-label={`Notifications${!isAdmin && unreadNotices.length ? `, ${unreadNotices.length} unread` : ""}`}
+                onClick={() => setShowNotifications((open) => !open)}
+              >
+                <Bell size={19} />
+                {!isAdmin && unreadNotices.length > 0 && (
+                  <span className="notification-count">{unreadNotices.length}</span>
+                )}
+              </button>
+
+              {showNotifications && (
+                <div className="notification-popover">
+                  <div className="notification-popover-heading">
+                    <strong>Notifications</strong>
+                    {!isAdmin && unreadNotices.length > 0 && (
+                      <button type="button" onClick={markAllNoticesAsRead}>Mark all as read</button>
+                    )}
+                  </div>
+                  {isAdmin ? (
+                    <p className="notification-empty">You are all caught up.</p>
+                  ) : unreadNotices.length === 0 ? (
+                    <p className="notification-empty">No new announcements.</p>
+                  ) : (
+                    unreadNotices.slice().reverse().map((notice) => (
+                      <button
+                        type="button"
+                        className="notification-item"
+                        key={notice.id}
+                        onClick={() => {
+                          markNoticeAsRead(notice.id);
+                          setPage("Notices");
+                          setShowNotifications(false);
+                        }}
+                      >
+                        <span className="notification-item-dot" />
+                        <span>
+                          <strong>{notice.title}</strong>
+                          <small>{notice.description}</small>
+                          <small>{formatDate(notice.date)}</small>
+                        </span>
+                      </button>
+                    ))
+                  )}
+                </div>
+              )}
+            </div>
 
             <div className="topbar-profile">
               <div className="user-avatar">
@@ -1636,6 +1723,7 @@ export default function App() {
                         <input
                           type={type}
                           min={type === "number" ? "0" : undefined}
+                          max={type === "date" ? getToday() : undefined}
                           value={employeeForm[key] ?? ""}
                           onChange={(event) =>
                             setEmployeeForm({
